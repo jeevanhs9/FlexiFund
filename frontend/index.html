@@ -9,6 +9,17 @@
       content="FlexiFund helps irregular-income workers understand their weekly finances."
     />
     <title>FlexiFund · Financial overview</title>
+    <script>
+      (() => {
+        try {
+          const saved = localStorage.getItem("flexifund-theme") || "system";
+          const useDark = saved === "dark" || (saved === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.dataset.theme = useDark ? "dark" : "light";
+        } catch {
+          document.documentElement.dataset.theme = "light";
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

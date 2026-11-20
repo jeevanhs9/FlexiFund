@@ -20,15 +20,29 @@ export function formatCompactMoney(value) {
   return formatMoney(amount);
 }
 
-export function formatDate(value, options = { day: "numeric", month: "short", year: "numeric" }) {
+export function formatDate(value, options = null) {
   if (!value) return "—";
   const parsed = new Date(`${value}T00:00:00`);
   if (Number.isNaN(parsed.getTime())) return value;
+  if (!options) {
+    let preference = "short";
+    try {
+      preference = window.localStorage.getItem("flexifund-date-format") || "short";
+    } catch {
+      // Keep date rendering available when browser storage is disabled.
+    }
+    if (preference === "numeric") {
+      return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" }).format(parsed);
+    }
+    if (preference === "iso") return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+    options = { day: "numeric", month: "short", year: "numeric" };
+  }
   return new Intl.DateTimeFormat("en-IN", options).format(parsed);
 }
 
 export function formatPeriod(period) {
-  if (!period?.month || !period?.year) return "All periods";
+  if (!period?.year) return "All periods";
+  if (!period.month) return String(period.year);
   return new Intl.DateTimeFormat("en-IN", { month: "long", year: "numeric" }).format(
     new Date(period.year, period.month - 1, 1),
   );

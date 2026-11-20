@@ -55,9 +55,11 @@ The React/Vite frontend provides:
 - Monthly income, expense, and surplus charts, plus an expense-category doughnut chart.
 - Essential versus non-essential spending comparison and recent transactions.
 - Income and expense forms with validation, success/error feedback, and refreshed summaries after saving.
-- A transactions page with API filters for record type, category, month, and year.
+- A transactions page with API filters for record type, category, month, and year, plus text search, date range, and sorting.
 - An analytics page with average monthly metrics and a savings trend, plus a financial-health detail page.
-- Responsive navigation and layouts for desktop, tablet, and mobile. Settings is a read-only demo placeholder.
+- A collapsible desktop sidebar, compact horizontally scrollable mobile navigation, and responsive transaction cards.
+- Light, dark, and system appearance; date format; period selection; and notification preferences saved in the browser only.
+- Dashboard period selection for this month, last month, and this year. Arbitrary date ranges are available in transaction filters; the dashboard API supports month/year filters.
 
 Charts use accessible SVG rendered from API responses, so no chart package is needed. The API base defaults to the Vite `/api` proxy. To call Flask directly, set `VITE_API_BASE_URL` to `http://127.0.0.1:5000/api` before starting Vite.
 
