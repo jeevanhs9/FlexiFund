@@ -12,6 +12,9 @@ env/
 build/
 dist/
 *.egg-info/
+backend/*.db
+backend/*.sqlite
+backend/*.sqlite3
 
 # Frontend dependencies and generated files
 node_modules/

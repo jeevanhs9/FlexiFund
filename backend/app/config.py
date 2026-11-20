@@ -21,6 +21,7 @@ class Config:
     """Settings read from the environment and backend/.env."""
 
     APP_NAME = os.getenv("APP_NAME", "FlexiFund API")
-    DEBUG = _as_bool(os.getenv("DEBUG"))
-    DATABASE_URL = os.getenv("DATABASE_URL")
+    DEBUG = _as_bool(os.getenv("DEBUG", os.getenv("FLASK_DEBUG")))
+    SECRET_KEY = os.getenv("SECRET_KEY")
+    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///flexifund.db")
     FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")

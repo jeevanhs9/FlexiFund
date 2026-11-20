@@ -99,6 +99,17 @@ h1 span { color: #518465; }
 .metric-value { color: #263d33; font: 700 22px Manrope, sans-serif; letter-spacing: -.8px; }
 .metric-detail { margin-top: 4px; color: #9aa79f; font-size: 8px; }
 
+.monthly-summary-panel { display: flex; align-items: center; gap: 22px; padding: 13px 17px; border: 1px solid #e8ede9; border-radius: 12px; margin: -1px 0 16px; background: #fff; box-shadow: 0 2px 8px #263d3305; }
+.monthly-summary-title { min-width: 122px; }
+.monthly-summary-title .panel-kicker { margin-bottom: 4px; }
+.monthly-summary-title strong { color: #344a3e; font: 700 11px Manrope, sans-serif; }
+.monthly-summary-list { flex: 1; min-width: 0; }
+.monthly-summary-row { display: flex; align-items: center; justify-content: space-between; gap: 13px; padding: 7px 0; }
+.monthly-summary-row > strong { color: #536d5b; font: 700 9px Manrope, sans-serif; white-space: nowrap; }
+.monthly-summary-row > span { color: #98a39b; font-size: 8px; white-space: nowrap; }
+.monthly-summary-row b { margin-left: 3px; color: #506958; font: 600 9px Manrope, sans-serif; }
+.monthly-summary-empty { color: #9aa79f; font-size: 9px; }
+
 .content-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(250px, .9fr); gap: 15px; margin-bottom: 15px; }
 .panel { border: 1px solid #e8ede9; border-radius: 13px; background: #fff; box-shadow: 0 2px 8px #263d3305; }
 .income-panel, .cost-panel { min-height: 313px; padding: 18px 19px 13px; }
@@ -129,6 +140,10 @@ h1 span { color: #518465; }
 .marker-maintenance { background: #dfa767; }
 .marker-data { background: #8b89b7; }
 .marker-other { background: #85a6b7; }
+.marker-0 { background: #79ae84; }
+.marker-1 { background: #dfa767; }
+.marker-2 { background: #8b89b7; }
+.marker-3 { background: #85a6b7; }
 .cost-name { flex: 1; color: #78867e; font-size: 10px; }
 .cost-value { color: #41584a; font: 600 10px Manrope, sans-serif; }
 .separation-note { display: flex; gap: 8px; margin-top: 15px; padding: 10px; border: 1px solid #e9efe9; border-radius: 8px; color: #85958a; background: #f8faf8; font-size: 8px; line-height: 1.45; }
@@ -194,6 +209,10 @@ h1 span { color: #518465; }
   h1 { font-size: 26px; }
   .period-pill { align-self: flex-start; }
   .content-grid { grid-template-columns: 1fr; }
+  .monthly-summary-panel { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .monthly-summary-title { min-width: 0; }
+  .monthly-summary-list { width: 100%; }
+  .monthly-summary-row { flex-wrap: wrap; justify-content: flex-start; }
   .income-panel { min-height: 290px; }
   .cost-panel { min-height: auto; }
   .synthetic-stamp { font-size: 8px; }

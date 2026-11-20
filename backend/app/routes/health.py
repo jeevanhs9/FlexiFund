@@ -23,3 +23,13 @@ def health():
             "service": current_app.config["APP_NAME"],
         }
     )
+
+
+@health_bp.get("/api/health")
+def api_health():
+    return jsonify(
+        {
+            "status": "success",
+            "message": "FlexiFund API is running",
+        }
+    )

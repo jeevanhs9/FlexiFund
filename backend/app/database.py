@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from typing import Iterator
 
 from flask import Flask, current_app, has_app_context
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 
@@ -19,13 +19,16 @@ def init_database(app: Flask) -> None:
     database_url = app.config.get("DATABASE_URL")
     if not database_url:
         raise RuntimeError(
-            "DATABASE_URL is not set. Copy backend/.env.example to backend/.env "
-            "and configure the PostgreSQL connection."
+            "DATABASE_URL is not set. Copy backend/.env.example to backend/.env."
         )
+    is_sqlite = database_url.startswith("sqlite:")
     engine = create_engine(
         database_url,
         pool_pre_ping=True,
+        connect_args={"check_same_thread": False} if is_sqlite else {},
     )
+    if is_sqlite:
+        event.listen(engine, "connect", _enable_sqlite_foreign_keys)
     session_factory = sessionmaker(
         bind=engine,
         autoflush=False,
@@ -61,3 +64,10 @@ def _get_current_app() -> Flask:
     if not has_app_context():
         raise RuntimeError("Pass a Flask app or enter its application context first.")
     return current_app._get_current_object()
+
+
+def _enable_sqlite_foreign_keys(connection, _connection_record) -> None:
+    """Enable SQLite foreign-key enforcement on every pooled connection."""
+    cursor = connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()

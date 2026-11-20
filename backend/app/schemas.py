@@ -4,14 +4,34 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 NonNegativeMoney = Annotated[
     Decimal,
     Field(ge=Decimal("0"), max_digits=12, decimal_places=2),
 ]
+PositiveMoney = Annotated[
+    Decimal,
+    Field(gt=Decimal("0"), max_digits=12, decimal_places=2),
+]
+IncomeType = Literal["Salary", "Freelance", "Business", "Investment", "Other"]
+ExpenseCategory = Literal[
+    "Food",
+    "Rent",
+    "Transportation",
+    "Utilities",
+    "Education",
+    "Healthcare",
+    "Entertainment",
+    "Shopping",
+    "EMI",
+    "Insurance",
+    "Other",
+]
+ExpenseType = Literal["Essential", "Non-Essential"]
+NameText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
 
 
 class RiderBase(BaseModel):
@@ -54,4 +74,70 @@ class FinancialHistoryResponse(FinancialHistoryBase):
 
     id: int
     rider_id: int
+    created_at: datetime
+
+
+class UserCreate(BaseModel):
+    name: NameText
+    email: str = Field(min_length=3, max_length=320)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if "@" not in normalized or "." not in normalized.rsplit("@", 1)[-1]:
+            raise ValueError("A valid email address is required")
+        return normalized
+
+
+class UserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    email: str
+    created_at: datetime
+
+
+class IncomeCreate(BaseModel):
+    user_id: int = Field(gt=0)
+    source: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+    amount: PositiveMoney
+    income_type: IncomeType
+    date: date
+    description: str | None = Field(default=None, max_length=500)
+
+
+class IncomeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    source: str
+    amount: Decimal
+    income_type: str
+    date: date
+    description: str | None
+    created_at: datetime
+
+
+class ExpenseCreate(BaseModel):
+    user_id: int = Field(gt=0)
+    category: ExpenseCategory
+    amount: PositiveMoney
+    expense_type: ExpenseType
+    date: date
+    description: str | None = Field(default=None, max_length=500)
+
+
+class ExpenseResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    category: str
+    amount: Decimal
+    expense_type: str
+    date: date
+    description: str | None
     created_at: datetime

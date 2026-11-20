@@ -1,128 +1,128 @@
 # FlexiFund
 
-FlexiFund is a financial safety system concept for workers whose income changes from week to week, including delivery riders. The project follows **Predict → Protect → Prove**: understand irregular income, help a worker plan a safety buffer, and explain the evidence behind a recommendation.
-
-## Phase 1: Foundation
-
-This phase establishes the backend structure, PostgreSQL connection, SQLAlchemy models, validation schemas, persona adapter interface, Flask API, synthetic rider history, and a read-only React/Vite dashboard. It does not calculate risk or recommend financial actions.
-
-Ravi is a fictional demo profile. His Bengaluru profile and all associated income and expense history are **synthetic and not real-world verified financial data**. The records are authored to show normal, strong, rain-affected, lean, recovery, and festival-demand weeks.
+FlexiFund is a financial safety system for workers with changing income. Phase 2 adds a financial engine that tracks income and expenses, calculates surplus and savings rate, and summarizes monthly cash flow. The existing synthetic rider dashboard remains available.
 
 ## Technology
 
-- Python 3.11 or newer
-- Flask and Flask-CORS
-- SQLAlchemy 2.x
-- PostgreSQL with the Psycopg 3 driver
-- NumPy, available for later analysis work
-- Pydantic for request and response validation
-- python-dotenv for local environment configuration
-- React and Vite for the read-only demo dashboard
+- Python 3.11 or newer, Flask, Flask-CORS, SQLAlchemy, Pydantic, and python-dotenv
+- SQLite for local development; the database file is created at `backend/flexifund.db`
+- React and Vite for the frontend
+- NumPy remains available for later analysis work
 
-## Project structure
+Docker is not required for Phase 2. The existing Compose file is retained for the earlier PostgreSQL setup.
 
-```text
-flexifund/
-├── backend/
-│   ├── app/
-│   │   ├── adapters/       # Persona normalization interface and rider adapter
-│   │   ├── engine/         # Reserved for later financial engines
-│   │   ├── routes/         # Health and read-only synthetic demo endpoint
-│   │   ├── app.py          # Local Flask entry point
-│   │   ├── config.py       # Environment-backed settings
-│   │   ├── database.py     # SQLAlchemy engine and session helpers
-│   │   ├── models.py       # Rider and financial history tables
-│   │   ├── schemas.py      # Pydantic validation schemas
-│   │   └── seed.py         # Synthetic Ravi data
-│   ├── .env.example
-│   ├── Dockerfile
-│   └── requirements.txt
-├── frontend/               # React/Vite dashboard for the synthetic rider data
-│   ├── src/                # Dashboard UI and responsive styles
-│   ├── index.html
-│   ├── package.json
-│   └── vite.config.js      # Proxies API calls to Flask
-├── docker-compose.yml      # Local PostgreSQL only
-└── .gitignore
-```
+## Run on Windows
 
-## Run locally
+Open two PowerShell terminals from the repository root (`E:\FlexiFund`).
 
-### 1. Configure the environment
-
-From the repository root, copy `backend/.env.example` to `backend/.env`. The example contains local development credentials only; replace them if you change the PostgreSQL credentials.
+### Backend
 
 ```powershell
-Copy-Item backend/.env.example backend/.env
-```
-
-### 2. Start PostgreSQL
-
-Docker Desktop must be installed and running. From the repository root:
-
-```powershell
-docker compose up -d
-docker compose ps
-```
-
-Compose starts only PostgreSQL, keeps its data in a named volume, and waits for its health check. It publishes the database on host port `5433` (container port `5432`) to avoid colliding with a locally installed PostgreSQL service. The local development defaults match the example database URL. Set `POSTGRES_HOST_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` in a root `.env` file or the shell to change the port or credentials; update `DATABASE_URL` in `backend/.env` to match.
-
-### 3. Install Python dependencies
-
-From the repository root:
-
-```powershell
-py -3 -m venv backend/.venv
-backend/.venv/Scripts/Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r backend/requirements.txt
-```
-
-### 4. Seed the synthetic rider
-
-```powershell
-Set-Location backend
+Set-Location E:\FlexiFund\backend
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
 python -m app.seed
-```
-
-The seed creates the tables if needed, inserts Ravi if he is missing, and adds any missing weekly history records. Its 32-week demo timeline has fixed dates, so rerunning it later will not shift the history or add another batch. Each date represents the start of a synthetic week; income, work costs, and household essential expenses are stored as separate decimal amounts.
-
-### 5. Start Flask
-
-Keep the shell in the `backend` directory:
-
-```powershell
 python -m app.app
 ```
 
-For Flask's development server instead:
+If PowerShell blocks virtual environment activation, run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in that terminal and activate again. If `.env` already exists, skip `Copy-Item`.
+
+The API runs at `http://127.0.0.1:5000`. `python -m app.seed` can be run again safely; it only inserts missing demo records.
+
+### Frontend
+
+In the second terminal:
 
 ```powershell
-flask --app app.app run --debug
-```
-
-Open the health check at [http://localhost:5000/health](http://localhost:5000/health). It returns `{"status":"ok","service":"FlexiFund API"}`. The root endpoint at [http://localhost:5000/](http://localhost:5000/) returns the API welcome message and phase.
-
-The read-only dashboard data endpoint is `GET /api/demo/rider`. It returns Ravi's seeded profile and weekly history without calculating financial outcomes.
-
-### 6. Start the frontend
-
-Leave the backend running. Open a second PowerShell window from the repository root:
-
-```powershell
-Set-Location frontend
+Set-Location E:\FlexiFund\frontend
 npm install
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173). The dashboard reads Ravi's synthetic weekly history through `GET /api/demo/rider`; Vite forwards that request to Flask. If the database or seed is unavailable, the page explains what to start. The chart displays gross income and household essentials as separate stored values and does not calculate a surplus or risk score.
+Open `http://localhost:5173`. Vite forwards `/api` requests to the Flask server.
 
-## Data model
+## Demo data
 
-`Rider` identifies the worker and whether the profile is synthetic. `FinancialHistory` links each dated record to a rider. All money columns use `NUMERIC(12, 2)` and map to Python `Decimal` values.
+The seeded finance demo user has monthly income of ₹50,000 and expenses of ₹30,000, leaving ₹20,000 surplus and a 40% savings rate. Ravi's separate synthetic weekly rider records are retained for the rider history view. Both sets of demo data are fictional.
 
-Work costs (fuel, maintenance, data, and other work costs) remain separate from household essential expenses. Later phases can therefore calculate work-adjusted income and then subtract household expenses without mixing those categories. Phase 1 stores the inputs only; it does not perform those calculations.
+## API
 
-## Phase 2 direction
+All API responses use JSON. Validation failures return a `4xx` status with an `error` field.
 
-Phase 2 can add the Financial Intelligence Engine, starting with clearly defined income and expense calculations. Later work may add risk simulation, protection planning, stability scoring, what-if scenarios, and evidence benchmarks. The current React/Vite dashboard is read-only; none of those later features are implemented yet.
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/api/health` | API and database health |
+| POST | `/api/users` | Create a user |
+| POST / GET | `/api/income` | Add income / list income, optionally filter by user, month, or year |
+| POST / GET | `/api/expenses` | Add expense / list expenses, optionally filter by user, month, year, category, or type |
+| GET | `/api/dashboard` | Current-month totals and financial health |
+| GET | `/api/dashboard/monthly` | Monthly income, expenses, surplus, and savings rate |
+| GET | `/api/dashboard/expense-categories` | Expense totals grouped by category |
+| GET | `/api/demo/rider` | Existing synthetic rider profile and weekly history |
+
+The dashboard endpoints accept `user_id` (defaults to the seeded demo user), plus `month` and `year` where applicable. Expense type is `essential` or `non-essential`.
+
+Example requests from PowerShell:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5000/api/health
+Invoke-RestMethod http://127.0.0.1:5000/api/dashboard
+Invoke-RestMethod 'http://127.0.0.1:5000/api/expenses?category=food'
+
+$incomeBody = @{
+  user_id = 1
+  source = "Salary"
+  amount = 50000
+  income_type = "Salary"
+  date = "2026-11-20"
+  description = "Monthly salary"
+} | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:5000/api/income `
+  -ContentType "application/json" -Body $incomeBody
+
+$expenseBody = @{
+  user_id = 1
+  category = "Food"
+  amount = 5000
+  expense_type = "Essential"
+  date = "2026-11-20"
+  description = "Monthly food expenses"
+} | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:5000/api/expenses `
+  -ContentType "application/json" -Body $expenseBody
+```
+
+Income and expense endpoints wrap results in `status` and `data`. Dashboard example:
+
+```json
+{
+  "status": "success",
+  "data": {
+    "total_income": 50000,
+    "total_expenses": 30000,
+    "surplus": 20000,
+    "savings_rate": 40.0,
+    "expense_ratio": 60.0,
+    "essential_expenses": 25000,
+    "non_essential_expenses": 5000,
+    "essential_expense_ratio": 83.33,
+    "financial_status": "Healthy"
+  }
+}
+```
+
+Invalid requests return a JSON error such as `{"status":"error","message":"Amount must be greater than zero."}`. Monthly summaries return a JSON array, and the category summary returns a JSON object keyed by category.
+
+## Calculations
+
+Money is stored as `NUMERIC(12, 2)` and calculated with Python `Decimal` values. Surplus is income minus expenses; savings rate is surplus divided by income, expressed as a percentage. Zero income produces a zero savings rate. Health is `Deficit` when surplus is negative, `Healthy` at a savings rate of 20% or more, `Moderate` at 10% or more, and `Needs Attention` below 10%.
+
+## Calculator tests
+
+From the backend directory, run:
+
+```powershell
+python -m unittest discover -s tests -v
+```

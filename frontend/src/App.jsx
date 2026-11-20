@@ -1,4 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  fetchDashboard,
+  fetchExpenseCategories,
+  fetchExpenses,
+  fetchIncome,
+  fetchMonthlySummary,
+  fetchRiderDemo,
+} from "./api.js";
 
 const money = new Intl.NumberFormat("en-IN", {
   style: "currency",
@@ -12,6 +20,13 @@ function formatMoney(value) {
 
 function formatWeek(value, options = { day: "numeric", month: "short" }) {
   return new Intl.DateTimeFormat("en-IN", options).format(new Date(`${value}T00:00:00`));
+}
+
+function formatPeriod(period) {
+  if (!period?.month || !period?.year) return "All periods";
+  return new Intl.DateTimeFormat("en-IN", { month: "long", year: "numeric" }).format(
+    new Date(period.year, period.month - 1, 1),
+  );
 }
 
 function BrandMark() {
@@ -132,7 +147,7 @@ function IncomeChart({ history }) {
         <text x={chart.width / 2} y={chart.height - 8} textAnchor="middle" className="chart-axis-label">{formatWeek(chart.middle.date)}</text>
         <text x={chart.width - chart.pad.right} y={chart.height - 8} textAnchor="end" className="chart-axis-label">{formatWeek(chart.last.date)}</text>
       </svg>
-      <p className="chart-caption">Weekly values from Ravi’s synthetic history. The lines show separate categories; no surplus or risk score is calculated.</p>
+      <p className="chart-caption">Weekly values from Ravi’s synthetic history. Gross income and household essentials remain separate.</p>
     </div>
   );
 }
@@ -144,7 +159,7 @@ function EmptyState({ error, onRetry }) {
       <h2>{error ? "Demo data isn’t connected" : "Loading synthetic demo data"}</h2>
       <p>{error || "Connecting to the FlexiFund API and reading Ravi’s weekly history."}</p>
       {error && <button className="retry-button" onClick={onRetry}><Icon name="refresh" /> Try again</button>}
-      {error && <div className="setup-hint">Start PostgreSQL, run <code>python -m app.seed</code>, then start the backend.</div>}
+      {error && <div className="setup-hint">Start the SQLite backend, run <code>python -m app.seed</code>, then try again.</div>}
     </div>
   );
 }
@@ -152,30 +167,54 @@ function EmptyState({ error, onRetry }) {
 export default function App() {
   const [active, setActive] = useState("overview");
   const [demo, setDemo] = useState(null);
+  const [finance, setFinance] = useState(null);
+  const [incomeRecords, setIncomeRecords] = useState([]);
+  const [expenseRecords, setExpenseRecords] = useState([]);
+  const [expenseCategories, setExpenseCategories] = useState({});
+  const [monthlySummary, setMonthlySummary] = useState([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
-  async function loadDemo() {
+  async function loadDashboard() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch("/api/demo/rider");
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Could not load the demo profile.");
-      setDemo(payload);
+      const [riderData, dashboardResponse] = await Promise.all([
+        fetchRiderDemo(),
+        fetchDashboard(),
+      ]);
+      const dashboard = dashboardResponse.data;
+      const filters = {
+        user_id: dashboard.user_id,
+        month: dashboard.period.month,
+        year: dashboard.period.year,
+      };
+      const [incomeResponse, expensesResponse, categoriesResponse, monthlyResponse] = await Promise.all([
+        fetchIncome(filters),
+        fetchExpenses(filters),
+        fetchExpenseCategories(filters),
+        fetchMonthlySummary({ user_id: dashboard.user_id, year: dashboard.period.year }),
+      ]);
+      setDemo(riderData);
+      setFinance(dashboard);
+      setIncomeRecords(incomeResponse.data);
+      setExpenseRecords(expensesResponse.data);
+      setExpenseCategories(categoriesResponse);
+      setMonthlySummary(monthlyResponse);
     } catch {
       setDemo(null);
-      setError("The API or demo database is unavailable. Start the backend and seed Ravi’s data, then try again.");
+      setFinance(null);
+      setError("The API or demo database is unavailable. Start the backend and seed the demo data, then try again.");
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => { loadDemo(); }, []);
+  useEffect(() => { loadDashboard(); }, []);
 
-  const rider = demo?.rider;
   const history = demo?.history ?? [];
   const latest = history.at(-1);
+  const categoryEntries = Object.entries(expenseCategories);
   const featuredPatterns = [
     history.find((item) => /festival demand spike/i.test(item.notes ?? "")),
     history.find((item) => /lean period begins/i.test(item.notes ?? "")),
@@ -206,27 +245,42 @@ export default function App() {
           </section>
 
           <section className="profile-banner" aria-label="Synthetic profile notice">
-            <div className="profile-avatar">{rider?.name?.[0] ?? "R"}</div>
+            <div className="profile-avatar">{finance?.user_name?.[0] ?? "F"}</div>
             <div className="profile-details">
-              <div className="profile-name">{rider?.name ?? "Ravi"}<span className="verified-badge" title="Synthetic demo profile">✓</span></div>
-              <div className="profile-meta">{rider?.city ?? "Bengaluru"}<span>·</span> Delivery rider<span>·</span> {rider?.platform ?? "Synthetic Delivery Platform"}</div>
+              <div className="profile-name">{finance?.user_name ?? "FlexiFund Demo"}<span className="verified-badge" title="Synthetic demo account">✓</span></div>
+              <div className="profile-meta">Sample finance account<span>·</span> {formatPeriod(finance?.period)}<span>·</span> All entries are synthetic</div>
             </div>
-            <div className="synthetic-stamp"><span>✳</span> Fictional profile<br /><small>For demonstration only</small></div>
+            <div className="synthetic-stamp"><span>✳</span> Fictional account<br /><small>For demonstration only</small></div>
           </section>
 
-          {loading || error ? <EmptyState error={error} onRetry={loadDemo} /> : (
+          {loading || error ? <EmptyState error={error} onRetry={loadDashboard} /> : (
             <>
-              <section className="metrics-grid" aria-label="Latest week overview">
-                <MetricCard label="Gross income" value={formatMoney(latest?.gross_income ?? 0)} detail={`Latest week · ${latest ? formatWeek(latest.date) : "—"}`} icon="income" tone="green" />
-                <MetricCard label="Household essentials" value={formatMoney(latest?.essential_expenses ?? 0)} detail="Recorded separately from work costs" icon="costs" tone="lavender" />
-                <MetricCard label="Working days" value={`${latest?.working_days ?? 0}`} detail="In the latest recorded week" icon="calendar" tone="sand" />
-                <MetricCard label="History records" value={String(history.length)} detail="Weekly synthetic entries" icon="overview" tone="blue" />
+              <section className="metrics-grid" aria-label="Monthly financial summary">
+                <MetricCard label="Total income" value={formatMoney(finance.total_income)} detail={`${incomeRecords.length} entries · ${formatPeriod(finance.period)}`} icon="income" tone="green" />
+                <MetricCard label="Total expenses" value={formatMoney(finance.total_expenses)} detail={`${expenseRecords.length} entries · ${finance.essential_expense_ratio}% essential`} icon="costs" tone="lavender" />
+                <MetricCard label="Monthly surplus" value={formatMoney(finance.surplus)} detail={finance.financial_status} icon="calendar" tone={finance.surplus < 0 ? "sand" : "green"} />
+                <MetricCard label="Savings rate" value={`${finance.savings_rate}%`} detail={`Expense ratio · ${finance.expense_ratio}%`} icon="overview" tone="blue" />
+              </section>
+
+              <section className="monthly-summary-panel" aria-label="Monthly summary from the API">
+                <div className="monthly-summary-title"><div className="panel-kicker">MONTH BY MONTH</div><strong>Monthly snapshot</strong></div>
+                <div className="monthly-summary-list">
+                  {monthlySummary.map((item) => (
+                    <div className="monthly-summary-row" key={`${item.year}-${item.month}`}>
+                      <strong>{item.month} {item.year}</strong>
+                      <span>Income <b>{formatMoney(item.income)}</b></span>
+                      <span>Expenses <b>{formatMoney(item.expenses)}</b></span>
+                      <span>Surplus <b>{formatMoney(item.surplus)}</b></span>
+                    </div>
+                  ))}
+                  {monthlySummary.length === 0 && <span className="monthly-summary-empty">No monthly records yet.</span>}
+                </div>
               </section>
 
               <section className="content-grid">
                 <article className="panel income-panel" id="income">
                   <div className="panel-heading">
-                    <div><div className="panel-kicker">INCOME PATTERN</div><h2>Week by week</h2></div>
+                    <div><div className="panel-kicker">RAVI · SYNTHETIC DELIVERY HISTORY</div><h2>Week by week</h2></div>
                     <div className="panel-range">{history.length ? `${formatWeek(history[0].date)} — ${formatWeek(latest.date)}` : ""}</div>
                   </div>
                   <IncomeChart history={history} />
@@ -234,24 +288,19 @@ export default function App() {
 
                 <article className="panel cost-panel" id="costs">
                   <div className="panel-heading">
-                    <div><div className="panel-kicker">LATEST WEEK</div><h2>Work costs</h2></div>
-                    <div className="cost-date">{latest ? formatWeek(latest.date) : ""}</div>
+                    <div><div className="panel-kicker">{formatPeriod(finance.period).toUpperCase()}</div><h2>Expense categories</h2></div>
+                    <div className="cost-date">{expenseRecords.length} entries</div>
                   </div>
                   <div className="cost-list">
-                    {[
-                      ["Fuel", latest?.fuel_cost, "fuel"],
-                      ["Maintenance", latest?.maintenance_cost, "maintenance"],
-                      ["Data", latest?.data_cost, "data"],
-                      ["Other work costs", latest?.other_work_cost, "other"],
-                    ].map(([label, value, key]) => (
-                      <div className="cost-row" key={key}>
-                        <span className={`cost-marker marker-${key}`} />
-                        <span className="cost-name">{label}</span>
-                        <span className="cost-value">{formatMoney(value ?? 0)}</span>
+                    {categoryEntries.map(([category, amount], index) => (
+                      <div className="cost-row" key={category}>
+                        <span className={`cost-marker marker-${index % 4}`} />
+                        <span className="cost-name">{category}</span>
+                        <span className="cost-value">{formatMoney(amount)}</span>
                       </div>
                     ))}
                   </div>
-                  <div className="separation-note"><span className="note-icon">i</span><span>Household essentials stay separate so work costs are easy to identify.</span></div>
+                  <div className="separation-note"><span className="note-icon">i</span><span>Categories are returned by the Flask expense summary API.</span></div>
                 </article>
               </section>
 
@@ -272,7 +321,7 @@ export default function App() {
                       </div>
                     );
                   })}
-                  {mostRecentPatterns.length === 0 && <p className="no-patterns">No highlighted demo weeks in this history.</p>}
+                  {featuredPatterns.length === 0 && <p className="no-patterns">No highlighted demo weeks in this history.</p>}
                 </div>
               </section>
 
@@ -284,7 +333,7 @@ export default function App() {
                 <span className="journey-arrow">→</span>
                 <div className="journey-step"><span className="step-number">03</span><div><strong>Prove</strong><small>Show the evidence clearly</small></div></div>
               </section>
-              <footer className="page-footer">FlexiFund demo · All financial history shown here is synthetic and not real-world verified.</footer>
+              <footer className="page-footer">FlexiFund demo · All finance and rider history shown here is synthetic and not real-world verified.</footer>
             </>
           )}
         </div>

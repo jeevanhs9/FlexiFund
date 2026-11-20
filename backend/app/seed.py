@@ -10,8 +10,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import create_app
+from app.constants import DEMO_TRANSACTION_DATE, DEMO_USER_EMAIL, DEMO_USER_NAME
 from app.database import create_tables, session_scope
-from app.models import FinancialHistory, Rider
+from app.models import Expense, FinancialHistory, Income, Rider, User
 
 SYNTHETIC_HISTORY_END_DATE = date(2026, 11, 16)
 
@@ -71,6 +72,16 @@ WEEKLY_PATTERNS: tuple[WeeklyPattern, ...] = (
     WeeklyPattern(6900, 6, 1210, 100, 110, 180, 4400, "Normal earning week."),
     WeeklyPattern(7200, 6, 1250, 120, 110, 180, 4400, "Normal earning week."),
     WeeklyPattern(6400, 5, 1050, 100, 100, 160, 4450, "Normal week with five working days."),
+)
+
+SAMPLE_EXPENSES: tuple[tuple[str, int, str, str], ...] = (
+    ("Rent", 12000, "Essential", "Monthly rent"),
+    ("Food", 5000, "Essential", "Monthly food expenses"),
+    ("Transportation", 3000, "Essential", "Local transportation"),
+    ("Utilities", 2000, "Essential", "Monthly utility bills"),
+    ("Entertainment", 2000, "Non-Essential", "Entertainment budget"),
+    ("Shopping", 3000, "Non-Essential", "Monthly shopping"),
+    ("Education", 3000, "Essential", "Education expenses"),
 )
 
 
@@ -136,11 +147,72 @@ def seed_synthetic_rider(session: Session) -> tuple[int, int]:
     return riders_created, history_created
 
 
+def seed_financial_demo(session: Session) -> tuple[int, int, int]:
+    """Create a stable sample account and add any missing sample transactions."""
+    user = session.scalar(select(User).where(User.email == DEMO_USER_EMAIL))
+    users_created = 0
+    if user is None:
+        user = User(name=DEMO_USER_NAME, email=DEMO_USER_EMAIL)
+        session.add(user)
+        session.flush()
+        users_created = 1
+
+    income_created = 0
+    matching_income = session.scalar(
+        select(Income.id).where(
+            Income.user_id == user.id,
+            Income.source == "Salary",
+            Income.income_type == "Salary",
+            Income.amount == _money(50000),
+            Income.date == DEMO_TRANSACTION_DATE,
+        )
+    )
+    if matching_income is None:
+        session.add(
+            Income(
+                user_id=user.id,
+                source="Salary",
+                amount=_money(50000),
+                income_type="Salary",
+                date=DEMO_TRANSACTION_DATE,
+                description="Monthly salary — synthetic sample",
+            )
+        )
+        income_created = 1
+
+    expenses_created = 0
+    for category, amount, expense_type, description in SAMPLE_EXPENSES:
+        matching_expense = session.scalar(
+            select(Expense.id).where(
+                Expense.user_id == user.id,
+                Expense.category == category,
+                Expense.amount == _money(amount),
+                Expense.expense_type == expense_type,
+                Expense.date == DEMO_TRANSACTION_DATE,
+            )
+        )
+        if matching_expense is not None:
+            continue
+        session.add(
+            Expense(
+                user_id=user.id,
+                category=category,
+                amount=_money(amount),
+                expense_type=expense_type,
+                date=DEMO_TRANSACTION_DATE,
+                description=f"{description} — synthetic sample",
+            )
+        )
+        expenses_created += 1
+    return users_created, income_created, expenses_created
+
+
 def main() -> None:
     app = create_app()
     create_tables(app)
     with app.app_context(), session_scope() as session:
         riders_created, history_created = seed_synthetic_rider(session)
+        users_created, incomes_created, expenses_created = seed_financial_demo(session)
         session.flush()
         rider_count = session.scalar(
             select(func.count(Rider.id)).where(
@@ -158,11 +230,23 @@ def main() -> None:
                 Rider.is_synthetic.is_(True),
             )
         )
+        finance_user = session.scalar(select(User).where(User.email == DEMO_USER_EMAIL))
+        finance_income_count = session.scalar(
+            select(func.count(Income.id)).where(Income.user_id == finance_user.id)
+        )
+        finance_expense_count = session.scalar(
+            select(func.count(Expense.id)).where(Expense.user_id == finance_user.id)
+        )
     print(
         "Synthetic seed complete: "
         f"{1 if rider_count is not None else 0} Ravi rider, "
-        f"{history_count or 0} history records; "
-        f"added {riders_created} rider and {history_created} history records."
+        f"{history_count or 0} rider history records; "
+        f"{1 if finance_user is not None else 0} finance demo user, "
+        f"{finance_income_count or 0} income records and "
+        f"{finance_expense_count or 0} expense records; "
+        f"added {riders_created} rider, {history_created} rider history, "
+        f"{users_created} finance user, {incomes_created} income, "
+        f"and {expenses_created} expenses."
     )
 
 
