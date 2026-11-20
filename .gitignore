@@ -15,6 +15,7 @@ dist/
 backend/*.db
 backend/*.sqlite
 backend/*.sqlite3
+backend/model_store/
 
 # Frontend dependencies and generated files
 node_modules/

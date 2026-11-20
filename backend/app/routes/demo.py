@@ -23,7 +23,7 @@ def get_synthetic_rider():
             )
         )
         if rider is None:
-            return jsonify({"error": "Synthetic rider data is not seeded yet."}), 404
+            return jsonify({"rider": None, "history": []})
 
         history = session.scalars(
             select(FinancialHistory)

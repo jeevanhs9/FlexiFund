@@ -9,35 +9,27 @@ from decimal import Decimal
 from flask import Blueprint, request
 from sqlalchemy import select
 
-from app.constants import DEMO_USER_EMAIL
+from app.auth import authenticated_blueprint, authorize_user_id
 from app.database import session_scope
 from app.models import Expense, Income, User
 from app.routes.helpers import (
     error_response,
     json_amount,
-    parse_integer_filter,
     parse_period_filters,
     success_response,
 )
 from app.services.financial_calculator import calculate_financial_summary
 from app.services.financial_health import health_indicators
 
-dashboard_bp = Blueprint("dashboard", __name__, url_prefix="/api/dashboard")
+dashboard_bp = authenticated_blueprint(
+    Blueprint("dashboard", __name__, url_prefix="/api/dashboard")
+)
 
 
 def _dashboard_user(session):
-    raw_user_id = request.args.get("user_id")
-    if raw_user_id is None:
-        user = session.scalar(select(User).where(User.email == DEMO_USER_EMAIL))
-        if user is None:
-            return None, error_response("No demo user exists. Run python -m app.seed first.", 404)
-        return user, None
-
-    user_id, error = parse_integer_filter(
-        raw_user_id, "user_id", minimum=1, maximum=2_147_483_647
-    )
+    user_id, error = authorize_user_id(request.args.get("user_id"))
     if error:
-        return None, error_response(error)
+        return None, error
     user = session.get(User, user_id)
     if user is None:
         return None, error_response("User was not found.", 404)
@@ -64,7 +56,7 @@ def _date_filters(model, *, start, end):
 
 
 def _response_number(key: str, value: Decimal) -> int | float:
-    if key in {"savings_rate", "expense_ratio", "essential_expense_ratio"}:
+    if key in {"savings_rate", "expense_ratio", "essential_expense_ratio", "non_essential_expense_ratio"}:
         return float(value)
     return json_amount(value)
 

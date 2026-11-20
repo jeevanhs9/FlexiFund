@@ -1,6 +1,11 @@
 // Reusable fetch helpers for the Flask API. Set VITE_API_BASE_URL to point at
 // a different backend; Vite proxies /api to Flask during local development.
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api").replace(/\/+$/, "");
+let csrfToken = null;
+
+export function setCsrfToken(value) {
+  csrfToken = typeof value === "string" ? value : null;
+}
 
 function apiUrl(path) {
   return `${API_BASE_URL}/${path.replace(/^\/+/, "")}`;
@@ -8,13 +13,17 @@ function apiUrl(path) {
 
 async function requestJson(path, options = {}) {
   let response;
+  const method = (options.method || "GET").toUpperCase();
+  const headers = {
+    ...(options.body ? { "Content-Type": "application/json" } : {}),
+    ...(method !== "GET" && method !== "HEAD" && csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+    ...options.headers,
+  };
   try {
     response = await fetch(apiUrl(path), {
       ...options,
-      headers: {
-        ...(options.body ? { "Content-Type": "application/json" } : {}),
-        ...options.headers,
-      },
+      credentials: "include",
+      headers,
     });
   } catch {
     throw new Error("Unable to connect to FlexiFund server. Please make sure Flask is running.");
@@ -22,7 +31,9 @@ async function requestJson(path, options = {}) {
 
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(payload?.message ?? `Request failed with status ${response.status}.`);
+    const error = new Error(payload?.message ?? `Request failed with status ${response.status}.`);
+    error.status = response.status;
+    throw error;
   }
   return payload;
 }
@@ -45,6 +56,9 @@ export const fetchMonthlySummary = (params = {}) =>
 export const fetchExpenseCategories = (params = {}) =>
   requestJson(withQuery("/dashboard/expense-categories", params));
 
+export const fetchIntelligenceOverview = (params = {}) =>
+  requestJson(withQuery("/intelligence/overview", params));
+
 export const fetchIncome = (params = {}) =>
   requestJson(withQuery("/income", params));
 
@@ -58,3 +72,80 @@ export const addExpense = (expense) =>
   requestJson("/expenses", { method: "POST", body: JSON.stringify(expense) });
 
 export const fetchRiderDemo = () => requestJson("/demo/rider");
+
+export const fetchAssistantHistory = (conversationId = null) =>
+  requestJson(withQuery("/assistant/history", { conversation_id: conversationId }));
+
+export const sendAssistantQuestion = (question, conversationId = null) =>
+  requestJson("/assistant/chat", {
+    method: "POST",
+    body: JSON.stringify({ question, ...(conversationId ? { conversation_id: conversationId } : {}) }),
+  });
+
+export const clearAssistantHistory = (conversationId = null) =>
+  requestJson(withQuery("/assistant/history", { conversation_id: conversationId }), { method: "DELETE" });
+
+export const fetchPersonalizationInsights = () =>
+  requestJson("/personalization/insights");
+
+export const fetchPersonalizationProfile = () =>
+  requestJson("/personalization/profile");
+
+export const fetchPersonalizationBehavior = () =>
+  requestJson("/personalization/behavior");
+
+export const fetchPersonalizationBudget = () =>
+  requestJson("/personalization/budget");
+
+export const fetchFinancialGoals = () =>
+  requestJson("/personalization/goals");
+
+export const fetchPersonalizedRecommendations = () =>
+  requestJson("/personalization/recommendations");
+
+export const createFinancialGoal = (goal) =>
+  requestJson("/personalization/goals", { method: "POST", body: JSON.stringify(goal) });
+
+export const updateFinancialGoal = (goalId, changes) =>
+  requestJson(`/personalization/goals/${goalId}`, { method: "PUT", body: JSON.stringify(changes) });
+
+export const deleteFinancialGoal = (goalId) =>
+  requestJson(`/personalization/goals/${goalId}`, { method: "DELETE" });
+
+export const runWhatIfScenario = (plan) =>
+  requestJson("/personalization/what-if", { method: "POST", body: JSON.stringify(plan) });
+
+export const compareFinancialScenario = (plan) =>
+  requestJson("/personalization/scenario", { method: "POST", body: JSON.stringify(plan) });
+
+export async function registerAccount(account) {
+  const response = await requestJson("/auth/register", {
+    method: "POST",
+    body: JSON.stringify(account),
+  });
+  setCsrfToken(response?.data?.csrf_token);
+  return response?.data?.user;
+}
+
+export async function loginAccount(credentials) {
+  const response = await requestJson("/auth/login", {
+    method: "POST",
+    body: JSON.stringify(credentials),
+  });
+  setCsrfToken(response?.data?.csrf_token);
+  return response?.data?.user;
+}
+
+export async function fetchCurrentUser() {
+  const response = await requestJson("/auth/me");
+  setCsrfToken(response?.data?.csrf_token);
+  return response?.data?.user;
+}
+
+export async function logoutAccount() {
+  try {
+    await requestJson("/auth/logout", { method: "POST" });
+  } finally {
+    setCsrfToken(null);
+  }
+}

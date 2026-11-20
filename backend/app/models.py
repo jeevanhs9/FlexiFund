@@ -108,6 +108,8 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     email: Mapped[str] = mapped_column(String(320), nullable=False)
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    session_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -182,3 +184,91 @@ class Expense(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="expenses")
+
+
+class AssistantMessage(Base):
+    """A user-owned assistant conversation message."""
+
+    __tablename__ = "assistant_messages"
+    __table_args__ = (
+        CheckConstraint("role IN ('user', 'assistant')", name="ck_assistant_message_role"),
+        Index("ix_assistant_messages_user_conversation", "user_id", "conversation_id", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    role: Mapped[str] = mapped_column(String(12), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+
+class FinancialGoal(Base):
+    """A user-owned savings target and its current progress."""
+
+    __tablename__ = "financial_goals"
+    __table_args__ = (
+        CheckConstraint("target_amount > 0", name="ck_goal_target_positive"),
+        CheckConstraint("current_amount >= 0", name="ck_goal_current_nonnegative"),
+        CheckConstraint("priority IN ('high', 'medium', 'low')", name="ck_goal_priority"),
+        CheckConstraint("status IN ('active', 'paused', 'completed')", name="ck_goal_status"),
+        Index("ix_financial_goals_user_status_target", "user_id", "status", "target_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    target_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    current_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0.00"))
+    target_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    priority: Mapped[str] = mapped_column(String(12), nullable=False, default="medium")
+    category: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    status: Mapped[str] = mapped_column(String(12), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    contributions: Mapped[list[GoalContribution]] = relationship(
+        back_populates="goal", cascade="all, delete-orphan", order_by="GoalContribution.contributed_at"
+    )
+
+
+class GoalContribution(Base):
+    """A user-recorded goal balance adjustment, with its direction preserved."""
+
+    __tablename__ = "goal_contributions"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_goal_contribution_positive"),
+        CheckConstraint("change_type IN ('opening_balance', 'contribution', 'withdrawal')", name="ck_goal_contribution_type"),
+        Index("ix_goal_contributions_user_goal_date", "user_id", "goal_id", "contributed_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    goal_id: Mapped[int] = mapped_column(
+        ForeignKey("financial_goals.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    change_type: Mapped[str] = mapped_column(String(12), nullable=False, default="contribution")
+    contributed_at: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+
+    goal: Mapped[FinancialGoal] = relationship(back_populates="contributions")

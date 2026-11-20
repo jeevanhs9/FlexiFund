@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from typing import Iterator
 
 from flask import Flask, current_app, has_app_context
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import Engine, create_engine, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 
@@ -36,6 +36,23 @@ def init_database(app: Flask) -> None:
     )
     app.extensions["flexifund_engine"] = engine
     app.extensions["flexifund_session_factory"] = session_factory
+
+    # Additive migration for existing installations; no credentials are inferred
+    # for legacy accounts, and new auth sessions can be revoked server-side.
+    if inspect(engine).has_table("users"):
+        user_columns = {column["name"] for column in inspect(engine).get_columns("users")}
+        with engine.begin() as connection:
+            if "password_hash" not in user_columns:
+                connection.execute(text("ALTER TABLE users ADD COLUMN password_hash VARCHAR(255)"))
+            if "session_version" not in user_columns:
+                connection.execute(text("ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0"))
+        # Phase 7 adds user-owned goal tables. Create these additively for an
+        # existing installation so it does not need to reseed demo data.
+        from app import models  # noqa: F401  Register model metadata.
+        Base.metadata.create_all(bind=engine, tables=[
+            models.FinancialGoal.__table__,
+            models.GoalContribution.__table__,
+        ])
 
 
 def get_engine(app: Flask | None = None) -> Engine:

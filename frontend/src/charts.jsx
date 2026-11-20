@@ -65,6 +65,65 @@ export function MonthlyTrendChart({ rows = [] }) {
   );
 }
 
+export function ForecastChart({ rows = [], forecast = {} }) {
+  const actual = rows.slice(-6);
+  if (!actual.length && !forecast.available) {
+    return <EmptyChart>Add financial transactions to unlock financial intelligence.</EmptyChart>;
+  }
+  const displayRows = [...actual, ...(forecast.available ? [{
+    year: Number(String(forecast.forecast_period).slice(0, 4)),
+    month_number: Number(String(forecast.forecast_period).slice(5, 7)),
+    month: forecast.forecast_month,
+    total_income: forecast.predicted_income,
+    total_expenses: forecast.predicted_expenses,
+    total_savings: forecast.predicted_savings,
+    predicted: true,
+  }] : [])];
+  const width = 720;
+  const height = 260;
+  const pad = { top: 22, right: 16, bottom: 42, left: 60 };
+  const plotWidth = width - pad.left - pad.right;
+  const plotHeight = height - pad.top - pad.bottom;
+  const maxValue = Math.max(1, ...displayRows.map((row) => Math.max(Number(row.total_income) || 0, Number(row.total_expenses) || 0)));
+  const minValue = Math.min(0, ...(forecast.available ? [Number(forecast.predicted_savings) || 0] : []));
+  const domainMin = minValue * 1.1;
+  const domainMax = maxValue * 1.15;
+  const yAt = (value) => pad.top + ((domainMax - (Number(value) || 0)) / (domainMax - domainMin)) * plotHeight;
+  const zeroY = yAt(0);
+  const gridValues = [...new Set([domainMin, 0, domainMax])];
+  const slot = plotWidth / displayRows.length;
+  const barWidth = Math.min(23, Math.max(9, slot * 0.22));
+  return (
+    <div className="p3-chart-scroll">
+      <div className="p3-chart-legend" aria-label="Forecast chart legend">
+        <span><i className="legend-income" />Actual income</span>
+        <span><i className="legend-expenses" />Actual expenses</span>
+        {forecast.available && <><span><i className="legend-predicted-income" />Predicted income</span><span><i className="legend-predicted-expenses" />Predicted expenses</span><span><i className="legend-predicted-savings" />Predicted savings</span></>}
+      </div>
+      <svg className="p3-forecast-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={forecast.available ? "Historical actual income and expenses with a visibly distinct next-month forecast" : "Historical actual income and expenses; forecast unavailable"}>
+        {gridValues.map((value) => <g key={value}><line x1={pad.left} x2={width - pad.right} y1={yAt(value)} y2={yAt(value)} className={value === 0 ? "p3-chart-zero" : "p3-chart-grid"} /><text x={pad.left - 8} y={yAt(value) + 4} textAnchor="end" className="p3-chart-label">{formatCompactMoney(value)}</text></g>)}
+        {displayRows.map((row, index) => {
+          const center = pad.left + slot * index + slot / 2;
+          const incomeY = yAt(row.total_income);
+          const expenseY = yAt(row.total_expenses);
+          const savingsY = yAt(row.total_savings);
+          const predictedClass = row.predicted ? " p3-predicted-bar" : "";
+          const firstX = row.predicted ? center - barWidth * 1.5 - 4 : center - barWidth - 3;
+          const secondX = row.predicted ? center - barWidth / 2 : center + 3;
+          return <g key={`${row.year}-${row.month_number}-${row.predicted ? "forecast" : "actual"}`}>
+            <title>{`${row.predicted ? "Predicted" : "Actual"} ${row.month} ${row.year}: income ${formatMoney(row.total_income)}, expenses ${formatMoney(row.total_expenses)}${row.predicted ? `, savings ${formatMoney(row.total_savings)}` : ""}`}</title>
+            <rect x={firstX} y={Math.min(incomeY, zeroY)} width={barWidth} height={Math.max(1, Math.abs(zeroY - incomeY))} rx="4" className={`p3-bar-income${predictedClass}`} />
+            <rect x={secondX} y={Math.min(expenseY, zeroY)} width={barWidth} height={Math.max(1, Math.abs(zeroY - expenseY))} rx="4" className={`p3-bar-expenses${predictedClass}`} />
+            {row.predicted && <rect x={center + barWidth / 2 + 4} y={Math.min(savingsY, zeroY)} width={barWidth} height={Math.max(1, Math.abs(zeroY - savingsY))} rx="4" className="p3-bar-savings p3-predicted-bar" />}
+            <text x={center} y={height - 15} textAnchor="middle" className="p3-chart-label">{row.month.slice(0, 3)}{row.predicted ? "*" : ""}</text>
+          </g>;
+        })}
+      </svg>
+      <p className="p3-chart-note">{forecast.available ? `* ${forecast.forecast_month} is a ${forecast.confidence}-confidence statistical estimate, not a recorded result.` : forecast.explanation || "Forecast unavailable."}</p>
+    </div>
+  );
+}
+
 export function SavingsTrendChart({ rows = [] }) {
   if (!rows.length) return <EmptyChart>No savings history available yet.</EmptyChart>;
 

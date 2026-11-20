@@ -8,19 +8,24 @@ from flask import Blueprint, request
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from app.auth import (
+    authenticated_blueprint,
+    authenticated_user_id,
+    authorize_body_user_id,
+    authorize_user_id,
+)
 from app.database import session_scope
 from app.models import Expense, Income, User
 from app.schemas import ExpenseCategory, ExpenseCreate, IncomeCreate, UserCreate
 from app.routes.helpers import (
     error_response,
     json_amount,
-    parse_integer_filter,
     parse_json_body,
     parse_period_filters,
     success_response,
 )
 
-finance_bp = Blueprint("finance", __name__, url_prefix="/api")
+finance_bp = authenticated_blueprint(Blueprint("finance", __name__, url_prefix="/api"))
 
 
 def _created_at(record: Any) -> str:
@@ -53,20 +58,14 @@ def _serialize_expense(record: Expense) -> dict[str, Any]:
     }
 
 
-def _optional_user_id(raw_user_id: str | None) -> tuple[int | None, str | None]:
-    return parse_integer_filter(raw_user_id, "user_id", minimum=1, maximum=2_147_483_647)
-
-
 def _record_filters(
     model: type[Income] | type[Expense],
     *,
-    user_id: int | None,
+    user_id: int,
     start: Any,
     end: Any,
 ) -> list[Any]:
-    filters = []
-    if user_id is not None:
-        filters.append(model.user_id == user_id)
+    filters = [model.user_id == user_id]
     if start is not None:
         filters.append(model.date >= start)
     if end is not None:
@@ -102,12 +101,15 @@ def create_income():
     body, error = parse_json_body(IncomeCreate)
     if error:
         return error_response(error)
+    authorization_error = authorize_body_user_id(body.user_id)
+    if authorization_error:
+        return authorization_error
 
     with session_scope() as session:
-        user = session.get(User, body.user_id)
-        if user is None:
-            return error_response("User was not found.", 404)
-        record = Income(**body.model_dump())
+        record = Income(
+            user_id=authenticated_user_id(),
+            **body.model_dump(exclude={"user_id"}),
+        )
         session.add(record)
         session.flush()
         result = _serialize_income(record)
@@ -116,9 +118,6 @@ def create_income():
 
 @finance_bp.get("/income")
 def get_income():
-    user_id, error = _optional_user_id(request.args.get("user_id"))
-    if error:
-        return error_response(error)
     start, end, _month, _year, error = parse_period_filters(
         month_value=request.args.get("month"),
         year_value=request.args.get("year"),
@@ -126,9 +125,10 @@ def get_income():
     if error:
         return error_response(error)
 
+    user_id, error = authorize_user_id(request.args.get("user_id"))
+    if error:
+        return error
     with session_scope() as session:
-        if user_id is not None and session.get(User, user_id) is None:
-            return error_response("User was not found.", 404)
         statement = (
             select(Income)
             .where(*_record_filters(Income, user_id=user_id, start=start, end=end))
@@ -144,14 +144,15 @@ def create_expense():
     body, error = parse_json_body(ExpenseCreate)
     if error:
         return error_response(error)
-
-    from app.database import session_scope
+    authorization_error = authorize_body_user_id(body.user_id)
+    if authorization_error:
+        return authorization_error
 
     with session_scope() as session:
-        user = session.get(User, body.user_id)
-        if user is None:
-            return error_response("User was not found.", 404)
-        record = Expense(**body.model_dump())
+        record = Expense(
+            user_id=authenticated_user_id(),
+            **body.model_dump(exclude={"user_id"}),
+        )
         session.add(record)
         session.flush()
         result = _serialize_expense(record)
@@ -160,9 +161,6 @@ def create_expense():
 
 @finance_bp.get("/expenses")
 def get_expenses():
-    user_id, error = _optional_user_id(request.args.get("user_id"))
-    if error:
-        return error_response(error)
     start, end, _month, _year, error = parse_period_filters(
         month_value=request.args.get("month"),
         year_value=request.args.get("year"),
@@ -177,9 +175,10 @@ def get_expenses():
     if expense_type is not None and expense_type not in {"Essential", "Non-Essential"}:
         return error_response("Invalid expense_type. Choose Essential or Non-Essential.")
 
+    user_id, error = authorize_user_id(request.args.get("user_id"))
+    if error:
+        return error
     with session_scope() as session:
-        if user_id is not None and session.get(User, user_id) is None:
-            return error_response("User was not found.", 404)
         filters = _record_filters(Expense, user_id=user_id, start=start, end=end)
         if category is not None:
             filters.append(Expense.category == category)

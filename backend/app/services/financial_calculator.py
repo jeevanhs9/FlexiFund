@@ -38,6 +38,11 @@ def _percentage(numerator: Decimal, denominator: Decimal) -> Decimal:
     )
 
 
+def calculate_percentage(numerator: Decimal, denominator: Decimal) -> Decimal:
+    """Return a safe, rounded percentage for financial analysis modules."""
+    return _percentage(numerator, denominator)
+
+
 def calculate_total_income(income_records: list[AmountRecord]) -> Decimal:
     """Return the sum of income record amounts."""
     return _sum_amounts(list(income_records))
@@ -105,4 +110,5 @@ def calculate_financial_summary(
         "essential_expense_ratio": calculate_essential_expense_ratio(
             essential, total_expenses
         ),
+        "non_essential_expense_ratio": _percentage(non_essential, total_expenses),
     }
