@@ -1,13 +1,24 @@
-// Reusable fetch helpers for the Flask API.
+// Reusable fetch helpers for the Flask API. Set VITE_API_BASE_URL to point at
+// a different backend; Vite proxies /api to Flask during local development.
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api").replace(/\/+$/, "");
+
+function apiUrl(path) {
+  return `${API_BASE_URL}/${path.replace(/^\/+/, "")}`;
+}
 
 async function requestJson(path, options = {}) {
-  const response = await fetch(path, {
-    ...options,
-    headers: {
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
-      ...options.headers,
-    },
-  });
+  let response;
+  try {
+    response = await fetch(apiUrl(path), {
+      ...options,
+      headers: {
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+        ...options.headers,
+      },
+    });
+  } catch {
+    throw new Error("Unable to connect to FlexiFund server. Please make sure Flask is running.");
+  }
 
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
@@ -26,24 +37,24 @@ function withQuery(path, params = {}) {
 }
 
 export const fetchDashboard = (params = {}) =>
-  requestJson(withQuery("/api/dashboard", params));
+  requestJson(withQuery("/dashboard", params));
 
 export const fetchMonthlySummary = (params = {}) =>
-  requestJson(withQuery("/api/dashboard/monthly", params));
+  requestJson(withQuery("/dashboard/monthly", params));
 
 export const fetchExpenseCategories = (params = {}) =>
-  requestJson(withQuery("/api/dashboard/expense-categories", params));
+  requestJson(withQuery("/dashboard/expense-categories", params));
 
 export const fetchIncome = (params = {}) =>
-  requestJson(withQuery("/api/income", params));
+  requestJson(withQuery("/income", params));
 
 export const fetchExpenses = (params = {}) =>
-  requestJson(withQuery("/api/expenses", params));
+  requestJson(withQuery("/expenses", params));
 
 export const addIncome = (income) =>
-  requestJson("/api/income", { method: "POST", body: JSON.stringify(income) });
+  requestJson("/income", { method: "POST", body: JSON.stringify(income) });
 
 export const addExpense = (expense) =>
-  requestJson("/api/expenses", { method: "POST", body: JSON.stringify(expense) });
+  requestJson("/expenses", { method: "POST", body: JSON.stringify(expense) });
 
-export const fetchRiderDemo = () => requestJson("/api/demo/rider");
+export const fetchRiderDemo = () => requestJson("/demo/rider");

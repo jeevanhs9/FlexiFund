@@ -1,6 +1,6 @@
 # FlexiFund
 
-FlexiFund is a financial safety system for workers with changing income. Phase 2 adds a financial engine that tracks income and expenses, calculates surplus and savings rate, and summarizes monthly cash flow. The existing synthetic rider dashboard remains available.
+FlexiFund is a financial safety system for workers with changing income. Phase 2 added the finance backend and calculation engine. Phase 3 adds a responsive React dashboard for reviewing monthly cash flow, recording income and expenses, and exploring visual analytics. The original synthetic rider history remains available.
 
 ## Technology
 
@@ -9,7 +9,7 @@ FlexiFund is a financial safety system for workers with changing income. Phase 2
 - React and Vite for the frontend
 - NumPy remains available for later analysis work
 
-Docker is not required for Phase 2. The existing Compose file is retained for the earlier PostgreSQL setup.
+Docker is not required. The existing Compose file is retained from the earlier setup; the current application uses SQLite.
 
 ## Run on Windows
 
@@ -47,6 +47,20 @@ Open `http://localhost:5173`. Vite forwards `/api` requests to the Flask server.
 
 The seeded finance demo user has monthly income of ₹50,000 and expenses of ₹30,000, leaving ₹20,000 surplus and a 40% savings rate. Ravi's separate synthetic weekly rider records are retained for the rider history view. Both sets of demo data are fictional.
 
+## Phase 3 dashboard
+
+The React/Vite frontend provides:
+
+- A dashboard with API-backed income, expenses, surplus, savings rate, and financial-health status.
+- Monthly income, expense, and surplus charts, plus an expense-category doughnut chart.
+- Essential versus non-essential spending comparison and recent transactions.
+- Income and expense forms with validation, success/error feedback, and refreshed summaries after saving.
+- A transactions page with API filters for record type, category, month, and year.
+- An analytics page with average monthly metrics and a savings trend, plus a financial-health detail page.
+- Responsive navigation and layouts for desktop, tablet, and mobile. Settings is a read-only demo placeholder.
+
+Charts use accessible SVG rendered from API responses, so no chart package is needed. The API base defaults to the Vite `/api` proxy. To call Flask directly, set `VITE_API_BASE_URL` to `http://127.0.0.1:5000/api` before starting Vite.
+
 ## API
 
 All API responses use JSON. Validation failures return a `4xx` status with an `error` field.
@@ -62,7 +76,9 @@ All API responses use JSON. Validation failures return a `4xx` status with an `e
 | GET | `/api/dashboard/expense-categories` | Expense totals grouped by category |
 | GET | `/api/demo/rider` | Existing synthetic rider profile and weekly history |
 
-The dashboard endpoints accept `user_id` (defaults to the seeded demo user), plus `month` and `year` where applicable. Expense type is `essential` or `non-essential`.
+The dashboard endpoints accept `user_id` (defaults to the seeded demo user), plus `month` and `year` where applicable. Expense type values are `Essential` and `Non-Essential`.
+
+The frontend consumes `GET /api/dashboard`, `GET /api/dashboard/monthly`, `GET /api/dashboard/expense-categories`, `GET /api/income`, `GET /api/expenses`, `POST /api/income`, `POST /api/expenses`, and the preserved `GET /api/demo/rider` endpoint.
 
 Example requests from PowerShell:
 
