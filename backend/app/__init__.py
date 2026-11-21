@@ -37,6 +37,10 @@ def create_app(test_config: Mapping[str, Any] | None = None) -> Flask:
     app.config.setdefault("SESSION_COOKIE_HTTPONLY", True)
     app.config.setdefault("SESSION_COOKIE_SAMESITE", "Lax")
     app.config.setdefault("PERMANENT_SESSION_LIFETIME", timedelta(hours=12))
+    # Leave headroom above the CSV byte limit so oversized uploads can return a
+    # JSON validation error instead of an opaque 413 from the WSGI layer.
+    csv_limit = int(app.config.get("MAX_BANK_CSV_BYTES") or 1024 * 1024)
+    app.config.setdefault("MAX_CONTENT_LENGTH", csv_limit + (256 * 1024))
 
     init_database(app)
     CORS(

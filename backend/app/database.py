@@ -52,6 +52,9 @@ def init_database(app: Flask) -> None:
         Base.metadata.create_all(bind=engine, tables=[
             models.FinancialGoal.__table__,
             models.GoalContribution.__table__,
+            models.ImportBatch.__table__,
+            models.ImportedTransaction.__table__,
+            models.TransactionClassificationPreference.__table__,
         ])
 
 

@@ -126,6 +126,20 @@ class User(Base):
         cascade="all, delete-orphan",
         order_by="Expense.date",
     )
+    import_batches: Mapped[list[ImportBatch]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="ImportBatch.created_at.desc()",
+    )
+    imported_transactions: Mapped[list[ImportedTransaction]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="ImportedTransaction.transaction_date.desc(), ImportedTransaction.id.desc()",
+    )
+    classification_preferences: Mapped[list[TransactionClassificationPreference]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
 
 class Income(Base):
@@ -272,3 +286,131 @@ class GoalContribution(Base):
     )
 
     goal: Mapped[FinancialGoal] = relationship(back_populates="contributions")
+
+
+class ImportBatch(Base):
+    """A user-owned, metadata-only record of one CSV import attempt."""
+
+    __tablename__ = "import_batches"
+    __table_args__ = (
+        UniqueConstraint("batch_code", name="uq_import_batches_code"),
+        Index("ix_import_batches_user_created", "user_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    batch_code: Mapped[str] = mapped_column(String(48), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    source: Mapped[str] = mapped_column(String(30), nullable=False, default="csv")
+    mapping_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    total_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    imported_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    duplicate_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rejected_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    review_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+
+    user: Mapped[User] = relationship(back_populates="import_batches")
+    transactions: Mapped[list[ImportedTransaction]] = relationship(
+        back_populates="import_batch", cascade="all, delete-orphan", order_by="ImportedTransaction.id"
+    )
+
+
+class ImportedTransaction(Base):
+    """Normalized bank-statement row with traceable classification metadata.
+
+    Financial analysis continues to use the existing Income and Expense models.
+    The optional linked IDs show exactly which canonical record was created from
+    this imported row without storing the original CSV content.
+    """
+
+    __tablename__ = "imported_transactions"
+    __table_args__ = (
+        CheckConstraint(
+            "transaction_type IN ('Income', 'Expense', 'Transfer', 'Unknown')",
+            name="ck_imported_transaction_type",
+        ),
+        CheckConstraint(
+            "review_status IN ('classified', 'needs_review', 'corrected')",
+            name="ck_imported_transaction_review_status",
+        ),
+        CheckConstraint(
+            "amount > 0", name="ck_imported_transaction_amount_positive"
+        ),
+        Index("ix_imported_transactions_user_date", "user_id", "transaction_date"),
+        Index("ix_imported_transactions_user_reference", "user_id", "reference_id"),
+        Index("ix_imported_transactions_user_fingerprint", "user_id", "duplicate_fingerprint"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    import_batch_id: Mapped[int] = mapped_column(
+        ForeignKey("import_batches.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    transaction_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    description: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    transaction_type: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    debit: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    credit: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    balance: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    payment_mode: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    reference_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(60), nullable=True, index=True)
+    subcategory: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    is_work_expense: Mapped[bool] = mapped_column(nullable=False, default=False)
+    is_recurring: Mapped[bool] = mapped_column(nullable=False, default=False)
+    classification_confidence: Mapped[str] = mapped_column(String(12), nullable=False, default="low")
+    review_status: Mapped[str] = mapped_column(String(20), nullable=False, default="needs_review")
+    source: Mapped[str] = mapped_column(String(30), nullable=False, default="csv")
+    duplicate_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    linked_income_id: Mapped[int | None] = mapped_column(
+        ForeignKey("income.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    linked_expense_id: Mapped[int | None] = mapped_column(
+        ForeignKey("expenses.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    user: Mapped[User] = relationship(back_populates="imported_transactions")
+    import_batch: Mapped[ImportBatch] = relationship(back_populates="transactions")
+
+
+class TransactionClassificationPreference(Base):
+    """A per-user merchant correction reused by future CSV imports."""
+
+    __tablename__ = "transaction_classification_preferences"
+    __table_args__ = (
+        UniqueConstraint("user_id", "merchant_key", name="uq_transaction_preference_user_merchant"),
+        Index("ix_transaction_preferences_user", "user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    merchant_key: Mapped[str] = mapped_column(String(180), nullable=False)
+    category: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    transaction_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    is_work_expense: Mapped[bool] = mapped_column(nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    user: Mapped[User] = relationship(back_populates="classification_preferences")

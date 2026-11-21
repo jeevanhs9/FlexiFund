@@ -10,6 +10,7 @@ from app.routes.finance_routes import finance_bp
 from app.routes.health import health_bp
 from app.routes.intelligence_routes import intelligence_bp
 from app.routes.personalization_routes import personalization_bp
+from app.routes.transaction_import_routes import transaction_import_bp
 
 
 def register_routes(app: Flask) -> None:
@@ -22,3 +23,4 @@ def register_routes(app: Flask) -> None:
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(intelligence_bp)
     app.register_blueprint(personalization_bp)
+    app.register_blueprint(transaction_import_bp)

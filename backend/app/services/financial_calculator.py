@@ -58,6 +58,18 @@ def calculate_monthly_surplus(total_income: Decimal, total_expenses: Decimal) ->
     return (total_income - total_expenses).quantize(CENT, rounding=ROUND_HALF_UP)
 
 
+def calculate_work_adjusted_net_income(
+    total_income: Decimal, work_related_expenses: Decimal
+) -> Decimal:
+    """Return income after the imported expenses marked as work-related.
+
+    Work-related expenses remain part of total expenses, so the existing
+    surplus calculation already deducts them. This supplemental value makes
+    the work-cost impact explicit without introducing a disconnected engine.
+    """
+    return (total_income - work_related_expenses).quantize(CENT, rounding=ROUND_HALF_UP)
+
+
 def calculate_savings_rate(total_income: Decimal, surplus: Decimal) -> Decimal:
     """Return surplus as a percentage of income, or zero when income is zero."""
     return _percentage(surplus, total_income)

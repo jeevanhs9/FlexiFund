@@ -11,14 +11,17 @@ from sqlalchemy import select
 
 from app.auth import authenticated_blueprint, authorize_user_id
 from app.database import session_scope
-from app.models import Expense, Income, User
+from app.models import Expense, ImportedTransaction, Income, User
 from app.routes.helpers import (
     error_response,
     json_amount,
     parse_period_filters,
     success_response,
 )
-from app.services.financial_calculator import calculate_financial_summary
+from app.services.financial_calculator import (
+    calculate_financial_summary,
+    calculate_work_adjusted_net_income,
+)
 from app.services.financial_health import health_indicators
 
 dashboard_bp = authenticated_blueprint(
@@ -46,12 +49,12 @@ def _period_from_request(*, default_current_month: bool = False, default_current
     return (start, end, month, year, error)
 
 
-def _date_filters(model, *, start, end):
+def _date_filters(date_column, *, start, end):
     filters = []
     if start is not None:
-        filters.append(model.date >= start)
+        filters.append(date_column >= start)
     if end is not None:
-        filters.append(model.date < end)
+        filters.append(date_column < end)
     return filters
 
 
@@ -74,16 +77,31 @@ def get_dashboard():
 
         income_records = session.scalars(
             select(Income)
-            .where(Income.user_id == user.id, *_date_filters(Income, start=start, end=end))
+            .where(Income.user_id == user.id, *_date_filters(Income.date, start=start, end=end))
             .order_by(Income.date)
         ).all()
         expense_records = session.scalars(
             select(Expense)
-            .where(Expense.user_id == user.id, *_date_filters(Expense, start=start, end=end))
+            .where(Expense.user_id == user.id, *_date_filters(Expense.date, start=start, end=end))
             .order_by(Expense.date)
         ).all()
 
         summary = calculate_financial_summary(income_records, expense_records)
+        work_expense_records = session.scalars(
+            select(ImportedTransaction).where(
+                ImportedTransaction.user_id == user.id,
+                ImportedTransaction.transaction_type == "Expense",
+                ImportedTransaction.is_work_expense.is_(True),
+                *_date_filters(ImportedTransaction.transaction_date, start=start, end=end),
+            )
+        ).all()
+        work_expenses = sum(
+            (record.amount for record in work_expense_records), start=Decimal("0.00")
+        ).quantize(Decimal("0.01"))
+        summary["work_expenses"] = work_expenses
+        summary["work_adjusted_net_income"] = calculate_work_adjusted_net_income(
+            summary["total_income"], work_expenses
+        )
         summary.update(health_indicators(summary))
         data = {
             key: _response_number(key, value) if isinstance(value, Decimal) else value
@@ -113,13 +131,13 @@ def get_monthly_summary():
         income_records = session.scalars(
             select(Income).where(
                 Income.user_id == user.id,
-                *_date_filters(Income, start=start, end=end),
+                *_date_filters(Income.date, start=start, end=end),
             )
         ).all()
         expense_records = session.scalars(
             select(Expense).where(
                 Expense.user_id == user.id,
-                *_date_filters(Expense, start=start, end=end),
+                *_date_filters(Expense.date, start=start, end=end),
             )
         ).all()
 
@@ -159,7 +177,7 @@ def get_expense_categories():
         records = session.scalars(
             select(Expense).where(
                 Expense.user_id == user.id,
-                *_date_filters(Expense, start=start, end=end),
+                *_date_filters(Expense.date, start=start, end=end),
             )
         ).all()
         totals: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))

@@ -41,3 +41,7 @@ class Config:
     # Kept outside the web root. Artifacts contain only fitted model parameters
     # and aggregate monthly expense values, never transaction descriptions.
     MODEL_STORE_DIR = os.getenv("MODEL_STORE_DIR", str(BACKEND_DIR / "model_store"))
+    # CSV statements are parsed in memory and are never persisted. This is a
+    # deliberately conservative limit for a daily personal statement.
+    MAX_BANK_CSV_BYTES = int(os.getenv("MAX_BANK_CSV_BYTES", str(1024 * 1024)))
+    MAX_BANK_CSV_ROWS = int(os.getenv("MAX_BANK_CSV_ROWS", "5000"))

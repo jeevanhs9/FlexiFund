@@ -262,3 +262,23 @@ class ExpenseResponse(BaseModel):
     date: date
     description: str | None
     created_at: datetime
+
+
+class ImportedTransactionUpdate(BaseModel):
+    """A user correction for an imported bank transaction classification."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    transaction_type: Literal["Income", "Expense", "Transfer", "Unknown"] | None = None
+    category: ExpenseCategory | None = None
+    is_work_expense: bool | None = None
+
+    @model_validator(mode="after")
+    def require_change(self):
+        if not self.model_fields_set:
+            raise ValueError("At least one classification field must be supplied")
+        if self.transaction_type != "Expense" and "category" in self.model_fields_set and self.category is not None:
+            # A category may be supplied together with transaction_type Expense.
+            if "transaction_type" not in self.model_fields_set:
+                return self
+        return self

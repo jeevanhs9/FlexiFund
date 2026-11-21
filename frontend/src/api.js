@@ -14,8 +14,9 @@ function apiUrl(path) {
 async function requestJson(path, options = {}) {
   let response;
   const method = (options.method || "GET").toUpperCase();
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
   const headers = {
-    ...(options.body ? { "Content-Type": "application/json" } : {}),
+    ...(options.body && !isFormData ? { "Content-Type": "application/json" } : {}),
     ...(method !== "GET" && method !== "HEAD" && csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
     ...options.headers,
   };
@@ -70,6 +71,30 @@ export const addIncome = (income) =>
 
 export const addExpense = (expense) =>
   requestJson("/expenses", { method: "POST", body: JSON.stringify(expense) });
+
+function statementFormData(file, mapping = null) {
+  const form = new FormData();
+  form.append("file", file);
+  if (mapping && typeof mapping === "object") form.append("mapping", JSON.stringify(mapping));
+  return form;
+}
+
+export const previewBankStatement = (file, mapping = null) =>
+  requestJson("/transactions/preview", { method: "POST", body: statementFormData(file, mapping) });
+
+export const importBankStatement = (file, mapping = null) =>
+  requestJson("/transactions/import", { method: "POST", body: statementFormData(file, mapping) });
+
+export const fetchImportBatches = () => requestJson("/transactions/imports");
+
+export const fetchImportedTransactions = (batchId, reviewOnly = false) =>
+  requestJson(withQuery(`/transactions/imports/${batchId}/transactions`, { review_only: reviewOnly || undefined }));
+
+export const fetchImportedTransactionList = (reviewOnly = false) =>
+  requestJson(withQuery("/transactions", { review_only: reviewOnly || undefined }));
+
+export const updateImportedTransaction = (transactionId, changes) =>
+  requestJson(`/transactions/imported/${transactionId}`, { method: "PATCH", body: JSON.stringify(changes) });
 
 export const fetchRiderDemo = () => requestJson("/demo/rider");
 

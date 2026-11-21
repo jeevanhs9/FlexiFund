@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useScrollAnimations, useScrollProgress } from "./useScrollAnimations.jsx";
 import {
   addExpense,
   addIncome,
@@ -9,6 +10,8 @@ import {
   fetchDashboard,
   fetchExpenseCategories,
   fetchExpenses,
+  fetchImportedTransactions,
+  fetchImportedTransactionList,
   fetchIncome,
   fetchIntelligenceOverview,
   fetchMonthlySummary,
@@ -18,12 +21,16 @@ import {
   fetchCurrentUser,
   loginAccount,
   logoutAccount,
+  importBankStatement,
+  previewBankStatement,
   runWhatIfScenario,
   registerAccount,
   sendAssistantQuestion,
+  updateImportedTransaction,
   updateFinancialGoal,
 } from "./api.js";
 import {
+  CashFlowWaterfallChart,
   ExpenseComparison,
   ExpenseDonutChart,
   ForecastChart,
@@ -45,6 +52,16 @@ const EXPENSE_CATEGORIES = [
   "Entertainment", "Shopping", "EMI", "Insurance", "Other",
 ];
 const EXPENSE_TYPES = ["Essential", "Non-Essential"];
+const IMPORT_FIELDS = [
+  { id: "transaction_date", label: "Date", required: true },
+  { id: "description", label: "Description" },
+  { id: "debit", label: "Debit" },
+  { id: "credit", label: "Credit" },
+  { id: "amount", label: "Amount" },
+  { id: "balance", label: "Balance" },
+  { id: "reference_id", label: "Transaction ID" },
+  { id: "payment_mode", label: "Payment Mode" },
+];
 
 function BrandMark() {
   return (
@@ -77,6 +94,18 @@ function Icon({ name }) {
     expand: <><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M9 4v16m3-7 3 3-3 3" /></>,
     close: <><path d="m6 6 12 12M18 6 6 18" /></>,
     assistant: <><path d="M5 5.5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-7l-5 3v-3H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z" /><path d="m12 8 .7 2.1 2.1.7-2.1.7L12 13.6l-.7-2.1-2.1-.7 2.1-.7L12 8Z" /></>,
+    shield: <><path d="M12 21s8-4 8-11V5l-8-3-8 3v5c0 7 8 11 8 11Z" /><path d="m8.5 12 2.2 2.2 4.8-5" /></>,
+    forecast: <><path d="M4 19V5M4 19h17" /><path d="m7 15 3-3 3 1 6-7" /><path d="M15 6h4v4" /></>,
+    bills: <><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></>,
+    alerts: <><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4M12 8v4m0 3h.01" /></>,
+    profile: <><circle cx="12" cy="8" r="4" /><path d="M4 21c.7-4 3.4-6 8-6s7.3 2 8 6" /></>,
+    logout: <><path d="M10 5H5v14h5" /><path d="M14 8l4 4-4 4M18 12H9" /></>,
+    check: <><path d="m5 12 4 4L19 6" /></>,
+    wallet: <><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H19v14H6.5A2.5 2.5 0 0 1 4 16.5Z" /><path d="M4 8h15M15 13h2" /></>,
+    userPlus: <><circle cx="9" cy="8" r="3" /><path d="M3.5 20c.6-3.4 2.5-5 5.5-5s4.9 1.6 5.5 5M18 8v6m-3-3h6" /></>,
+    briefcase: <><rect x="3" y="7" width="18" height="12" rx="2" /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18M10 12v2h4v-2" /></>,
+    upload: <><path d="M12 16V3m0 0L7 8m5-5 5 5" /><path d="M5 14v5h14v-5" /></>,
+    file: <><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v5h5M9 13h6m-6 3h6" /></>,
   };
 
   return (
@@ -88,17 +117,18 @@ function Icon({ name }) {
 
 const NAV_ITEMS = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-  { id: "transactions", label: "Transactions", icon: "transactions" },
   { id: "income", label: "Income", icon: "income" },
   { id: "expenses", label: "Expenses", icon: "expenses" },
-  { id: "analytics", label: "Analytics", icon: "analytics" },
-  { id: "health", label: "Financial Health", icon: "health" },
-  { id: "personalization", label: "Personalization", icon: "analytics" },
-  { id: "assistant", label: "AI Assistant", icon: "assistant" },
+  { id: "import", label: "Import CSV", icon: "upload" },
+  { id: "shield", label: "Lean-Month Shield", icon: "shield" },
+  { id: "forecast", label: "Forecast", icon: "forecast" },
+  { id: "bills", label: "Bills & Payouts", icon: "bills" },
+  { id: "alerts", label: "Alerts", icon: "alerts" },
+  { id: "profile", label: "Profile", icon: "profile" },
   { id: "settings", label: "Settings", icon: "settings" },
 ];
 
-function Sidebar({ active, onNavigate, userName, collapsed, onToggleCollapse }) {
+function Sidebar({ active, onNavigate, onLogout, userName, collapsed, onToggleCollapse }) {
   return (
     <aside className="sidebar phase3-sidebar">
       <div className="p3-sidebar-head">
@@ -126,11 +156,12 @@ function Sidebar({ active, onNavigate, userName, collapsed, onToggleCollapse }) 
         ))}
       </nav>
       <div className="sidebar-bottom phase3-sidebar-bottom">
-        <div className="p3-sidebar-profile">
+        <button className="p3-sidebar-profile" type="button" onClick={() => onNavigate("profile")}>
           <span className="p3-sidebar-avatar" aria-hidden="true">{userName?.[0] || "F"}</span>
           <span><strong>{userName || "FlexiFund"}</strong><small>Private account</small></span>
-        </div>
+        </button>
         <div className="p3-sidebar-note"><strong>A steadier view of money</strong><span>Built for income that can change week to week.</span></div>
+        <button className="p3-sidebar-logout" type="button" onClick={onLogout}><Icon name="logout" /><span>Logout</span></button>
       </div>
     </aside>
   );
@@ -221,7 +252,7 @@ function Topbar({
           <button className="p3-icon-button" type="button" onClick={onToggleNotifications} aria-label="Notifications" aria-expanded={notificationsOpen} title="Notifications"><Icon name="bell" /></button>
           {notificationsOpen && <div className="p3-notification-popover" role="status"><strong>No new notifications</strong><span>Notification preferences are managed on this device.</span><button type="button" onClick={() => onNavigate("settings")}>Manage preferences</button></div>}
         </div>
-        <button className="p3-profile-button" type="button" onClick={() => onNavigate("settings")} aria-label={`Open ${userName || "FlexiFund"} profile settings`} title="Profile settings">{userName?.[0] || "F"}</button>
+        <button className="p3-profile-button" type="button" onClick={() => onNavigate("profile")} aria-label={`Open ${userName || "FlexiFund"} profile`} title="Profile">{userName?.[0] || "F"}</button>
         <button className="p3-logout-button" type="button" onClick={onLogout}>Sign out</button>
       </div>
     </header>
@@ -594,44 +625,72 @@ function PersonalizationPreview({ data, loading, error, onNavigate }) {
   );
 }
 
+function DashboardCashFlowChart({ rows = [] }) {
+  const chartRows = rows.slice(-6);
+  if (!chartRows.length) return <div className="dashboard-chart-empty">Add income and expense records to see your cash-flow trend.</div>;
+  const width = 640;
+  const height = 245;
+  const pad = { left: 46, right: 15, top: 18, bottom: 32 };
+  const max = Math.max(1, ...chartRows.flatMap((row) => [Number(row.income) || 0, Number(row.expenses) || 0]));
+  const roundMax = Math.ceil(max / 5000) * 5000;
+  const plotWidth = width - pad.left - pad.right;
+  const plotHeight = height - pad.top - pad.bottom;
+  const xAt = (index) => pad.left + (chartRows.length === 1 ? plotWidth / 2 : (index / (chartRows.length - 1)) * plotWidth);
+  const yAt = (value) => pad.top + (1 - (Number(value) || 0) / roundMax) * plotHeight;
+  const line = (field) => chartRows.map((row, index) => `${index ? "L" : "M"}${xAt(index).toFixed(1)} ${yAt(row[field]).toFixed(1)}`).join(" ");
+  const incomePath = line("income");
+  const expensePath = line("expenses");
+  const areaPath = `${incomePath} L${xAt(chartRows.length - 1).toFixed(1)} ${(height - pad.bottom).toFixed(1)} L${xAt(0).toFixed(1)} ${(height - pad.bottom).toFixed(1)} Z`;
+  const guides = [0, .5, 1];
+  return <div className="dashboard-cashflow-chart"><div className="dashboard-chart-legend"><span><i className="income" />Income</span><span><i className="expenses" />Expenses</span></div><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Income and expenses trend based on your recorded monthly transactions"><defs><linearGradient id="dashboard-income-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#08a875" stopOpacity=".25" /><stop offset="1" stopColor="#08a875" stopOpacity="0" /></linearGradient></defs>{guides.map((portion) => { const y = pad.top + (1 - portion) * plotHeight; return <g key={portion}><line className="dashboard-grid-line" x1={pad.left} x2={width - pad.right} y1={y} y2={y} /><text className="dashboard-axis-label" x={pad.left - 8} y={y + 4} textAnchor="end">{portion === 0 ? "0" : `₹${Math.round((roundMax * portion) / 1000)}k`}</text></g>; })}<path className="dashboard-income-area" d={areaPath} /><path className="dashboard-income-line" d={incomePath} /><path className="dashboard-expense-line" d={expensePath} />{chartRows.map((row, index) => <g key={`${row.year}-${row.month}`}><circle className="dashboard-income-dot" cx={xAt(index)} cy={yAt(row.income)} r="4" /><circle className="dashboard-expense-dot" cx={xAt(index)} cy={yAt(row.expenses)} r="4" /><text className="dashboard-axis-label" x={xAt(index)} y={height - 10} textAnchor="middle">{String(row.month || "").slice(0, 3)}</text></g>)}</svg></div>;
+}
+
+function DashboardScore({ risk, summary, onOpen }) {
+  const score = risk?.score == null ? null : Math.max(0, Math.min(100, Number(risk.score)));
+  const band = risk?.band || summary.financial_status || "Awaiting data";
+  return <Panel title="Financial Stability Score" kicker="LIVE FINANCIAL HEALTH" className="dashboard-score-panel" action={<span className={`dashboard-score-status ${score == null ? "pending" : ""}`}>{band}</span>}><div className="dashboard-score-content"><div className="dashboard-score-ring" style={{ "--score": `${score ?? 0}%` }}><div><strong>{score == null ? "—" : score}</strong><span>/100</span></div></div><div className="dashboard-score-copy"><strong>{score == null ? "Build your financial picture" : score >= 70 ? "Your finances are on track!" : "There is room to strengthen your buffer."}</strong><p>{risk?.explanation || getHealthMessage(summary)}</p><button type="button" className="dashboard-text-button" onClick={onOpen}>View details <Icon name="arrow" /></button></div></div></Panel>;
+}
+
+function ShieldBannerArt() {
+  return <svg className="dashboard-shield-art" viewBox="0 0 220 145" role="presentation" aria-hidden="true"><ellipse cx="133" cy="129" rx="79" ry="10" fill="#0b8672" opacity=".2" /><path d="M106 20 151 38v35c0 31-25 48-45 57-20-9-45-26-45-57V38Z" fill="#0c9f81" /><path d="M106 31 140 45v27c0 22-17 36-34 44-17-8-34-22-34-44V45Z" fill="#26c7a4" /><path d="m89 73 11 11 22-27" fill="none" stroke="#fff" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" /><g fill="#f5b938"><ellipse cx="164" cy="108" rx="25" ry="7" /><rect x="139" y="91" width="50" height="17" /><ellipse cx="164" cy="91" rx="25" ry="7" /><ellipse cx="49" cy="117" rx="20" ry="6" /><rect x="29" y="102" width="40" height="15" /><ellipse cx="49" cy="102" rx="20" ry="6" /></g></svg>;
+}
+
 function DashboardPage({ summary, monthly, categories, transactions, demo, intelligence, intelligenceLoading, intelligenceError, personalization, personalizationLoading, personalizationError, onRetryIntelligence, onNavigate, onAskAssistant, periodSelection, onPeriodChange }) {
+  const risk = intelligence?.risk || {};
+  const recommendations = intelligence?.recommendations || [];
+  const billPlan = useMemo(() => {
+    try { return JSON.parse(readPreference("flexifund-bill-plan", "[]")); } catch { return []; }
+  }, []);
+  const upcomingBills = billPlan.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const insights = [
+    ...(risk.negative_factors || []).map((message) => ({ tone: "warning", message })),
+    ...recommendations.slice(0, 2).map((item) => ({ tone: item.priority?.toLowerCase() === "high" ? "warning" : "good", message: item.message || item.title })),
+  ].slice(0, 3);
+  const monthLabel = formatPeriod(summary.period);
   return (
     <>
-      <PageTitle eyebrow="FLEXIFUND · FINANCIAL OVERVIEW" title={`Welcome back${summary.user_name ? `, ${summary.user_name}` : ""}.`} subtitle={`Here is your financial picture for ${formatPeriod(summary.period)}.`} action={<PeriodSelector value={periodSelection} onChange={onPeriodChange} />} />
-      <section className="metrics-grid phase3-metrics-grid" aria-label="Financial overview">
-        <MetricCard label="Total income" value={formatMoney(summary.total_income)} detail="For the selected period" icon="income" tone="green" />
-        <MetricCard label="Total expenses" value={formatMoney(summary.total_expenses)} detail={`${Number(summary.essential_expense_ratio).toFixed(1)}% essential`} icon="expenses" tone="lavender" />
-        <MetricCard label={`${summary.period.month ? "Period" : "Yearly"} ${Number(summary.surplus) < 0 ? "deficit" : "surplus"}`} value={formatMoney(Math.abs(Number(summary.surplus)))} detail={Number(summary.surplus) < 0 ? "Deficit" : "Remaining after expenses"} icon="calendar" tone={Number(summary.surplus) < 0 ? "sand" : "green"} />
-        <MetricCard label="Savings rate" value={`${Number(summary.savings_rate).toFixed(1)}%`} detail={`Expense ratio · ${Number(summary.expense_ratio).toFixed(1)}%`} icon="analytics" tone="blue" />
-        <MetricCard label="Financial health" value={<HealthBadge status={summary.financial_status} />} detail="Status from the FlexiFund API" icon="health" tone="mint" />
+      <section className="dashboard-welcome"><div><span className="p3-eyebrow">FLEXIFUND · FINANCIAL OVERVIEW</span><h1>Good morning{summary.user_name ? `, ${summary.user_name}` : ""}! <span aria-hidden="true">👋</span></h1><p>Here’s your financial overview for this month.</p></div><div className="dashboard-period"><PeriodSelector value={periodSelection} onChange={onPeriodChange} /></div></section>
+      <section className="metrics-grid dashboard-metrics-grid" aria-label="Financial overview">
+        <MetricCard label="Total Income" value={formatMoney(summary.total_income)} detail={summary.work_adjusted_net_income != null ? `Work-adjusted net ${formatMoney(summary.work_adjusted_net_income)}` : "Recorded for this period"} icon="income" tone="green" />
+        <MetricCard label="Total Expenses" value={formatMoney(summary.total_expenses)} detail={Number(summary.work_expenses) > 0 ? `${formatMoney(summary.work_expenses)} marked as work costs` : `${Number(summary.essential_expense_ratio).toFixed(1)}% essential spending`} icon="expenses" tone="lavender" />
+        <MetricCard label="Available Cash" value={formatMoney(summary.surplus)} detail={Number(summary.surplus) < 0 ? "Current-period deficit" : "Income after expenses"} icon="wallet" tone="mint" />
+        <MetricCard label="Upcoming Bills" value={formatMoney(upcomingBills)} detail={billPlan.length ? `${billPlan.length} item${billPlan.length === 1 ? "" : "s"} in your plan` : "Add planned bills to track them"} icon="bills" tone="sand" />
       </section>
-
-      <HealthSummary summary={summary} onOpen={() => onNavigate("health")} />
-      <PersonalizationPreview data={personalization} loading={personalizationLoading} error={personalizationError} onNavigate={onNavigate} />
-      <AssistantInvite onAsk={onAskAssistant} />
-
-      <IntelligencePanels intelligence={intelligence} loading={intelligenceLoading} error={intelligenceError} onRetry={onRetryIntelligence} />
-
-      <section className="p3-dashboard-grid p3-chart-grid-main">
-        <Panel title="Monthly financial trend" kicker="CASH FLOW" className="p3-trend-panel">
-          <MonthlyTrendChart rows={monthly} />
-        </Panel>
-        <Panel title="Expense distribution" kicker={formatPeriod(summary.period).toUpperCase()} className="p3-donut-panel">
-          <ExpenseDonutChart categories={categories} />
+      <section className="dashboard-main-grid">
+        <DashboardScore risk={risk} summary={summary} onOpen={() => onNavigate("health")} />
+        <Panel title="Income vs Expenses" kicker="RECORDED MONTHLY ACTIVITY" className="dashboard-cashflow-panel" action={<button className="dashboard-month-button" type="button" onClick={() => onNavigate("analytics")}>{monthLabel} <span>⌄</span></button>}><DashboardCashFlowChart rows={monthly} /></Panel>
+        <Panel title="Smart Insights" kicker="FROM YOUR FINANCIAL DATA" className="dashboard-insights-panel" action={<button className="dashboard-text-button" type="button" onClick={() => onNavigate("alerts")}>View all <Icon name="arrow" /></button>}>
+          {intelligenceLoading ? <div className="dashboard-insights-empty">Preparing insights from your records…</div> : intelligenceError && !intelligence ? <div className="dashboard-insights-empty">{intelligenceError} <button type="button" onClick={onRetryIntelligence}>Retry</button></div> : insights.length ? <ul className="dashboard-insights-list">{insights.map((item, index) => <li key={`${item.message}-${index}`}><span className={item.tone}><Icon name={item.tone === "warning" ? "alerts" : "check"} /></span><p>{item.message}</p></li>)}</ul> : <div className="dashboard-insights-empty">Add more records to receive data-based insights.</div>}
         </Panel>
       </section>
-
-      <section className="p3-dashboard-grid p3-lower-grid">
-        <Panel title="Essential vs non-essential" kicker="SPENDING MIX" className="p3-comparison-panel">
-          <ExpenseComparison essential={summary.essential_expenses} nonEssential={summary.non_essential_expenses} />
+      <section className="dashboard-bottom-grid">
+        <Panel title="Recent Transactions" kicker="LATEST ACTIVITY" className="dashboard-recent-panel" action={<button type="button" className="dashboard-text-button" onClick={() => onNavigate("transactions")}>View all <Icon name="arrow" /></button>}>
+          <div className="dashboard-recent-list">{transactions.length ? transactions.slice(0, 5).map((row) => <article key={`${row.recordType}-${row.id}`}><span className={`dashboard-transaction-icon ${row.recordType === "Income" ? "income" : "expense"}`}><Icon name={row.recordType === "Income" ? "income" : "expenses"} /></span><strong>{row.label}</strong><b className={row.recordType === "Income" ? "positive" : "negative"}>{row.recordType === "Income" ? "+" : "−"}{formatMoney(Math.abs(row.signedAmount))}</b><time>{formatDate(row.date)}</time></article>) : <div className="dashboard-chart-empty">Start by adding your first income or expense.</div>}</div>
         </Panel>
-        <Panel title="Recent transactions" kicker="LATEST ACTIVITY" className="p3-recent-panel" action={<button type="button" className="p3-link-button" onClick={() => onNavigate("transactions")}>View all <Icon name="arrow" /></button>}>
-          <TransactionsTable rows={transactions.slice(0, 5)} emptyMessage="Start by adding your first income or expense." onAddIncome={() => onNavigate("income")} onAddExpense={() => onNavigate("expenses")} />
-        </Panel>
+        <section className="dashboard-shield-banner"><div><span>LEAN-MONTH SHIELD</span><h2>Prepare for low-income periods</h2><p>Build a plan around essential expenses and keep your financial buffer visible.</p><button type="button" onClick={() => onNavigate("shield")}>Activate now <Icon name="arrow" /></button></div><ShieldBannerArt /></section>
+        <Panel title="Quick Actions" kicker="YOUR WORKSPACE" className="dashboard-actions-panel"><div className="dashboard-quick-actions"><button type="button" onClick={() => onNavigate("income")}><span><Icon name="income" /></span>Add income</button><button type="button" onClick={() => onNavigate("expenses")}><span><Icon name="expenses" /></span>Add expense</button><button type="button" onClick={() => onNavigate("import")}><span><Icon name="upload" /></span>Import CSV</button><button type="button" onClick={() => onNavigate("forecast")}><span><Icon name="forecast" /></span>View forecast</button><button type="button" onClick={() => onNavigate("bills")}><span><Icon name="bills" /></span>Add bill</button><button type="button" onClick={() => onNavigate("personalization")}><span><Icon name="analytics" /></span>Set a goal</button><button type="button" onClick={() => onAskAssistant("How am I doing financially?")}><span><Icon name="assistant" /></span>Ask FlexiFund</button></div></Panel>
       </section>
-
-      <RiderHistory demo={demo} />
-      <footer className="p3-footer">FlexiFund · Financial views are limited to your signed-in account.</footer>
+      <footer className="p3-footer">FlexiFund · Your dashboard uses only the financial records in this signed-in account.</footer>
     </>
   );
 }
@@ -1224,6 +1283,286 @@ function SettingsPage({ summary, themePreference, onThemeChange, dateFormat, onD
   );
 }
 
+function LeanMonthShieldPage({ summary, intelligence, onNavigate }) {
+  const risk = intelligence?.risk || {};
+  const savings = intelligence?.savings || {};
+  const forecast = intelligence?.forecast || {};
+  const monthlySavings = Number(savings.average_monthly_savings);
+  const safetyMonths = monthlySavings > 0 && Number(summary.essential_expenses) > 0
+    ? monthlySavings / Number(summary.essential_expenses)
+    : null;
+  const riskCopy = risk.score == null
+    ? "Add more recorded financial history to calculate an explainable health score."
+    : risk.explanation || "This score is calculated from your recorded cash flow and spending patterns.";
+  return (
+    <>
+      <PageTitle eyebrow="LEAN-MONTH SHIELD" title="Your financial safety net" subtitle="A practical view of how your recorded cash flow can support a lean month." action={<button className="p3-primary-button" type="button" onClick={() => onNavigate("personalization")}>Plan my safety net <Icon name="arrow" /></button>} />
+      <section className="shield-hero">
+        <div className="shield-hero-icon"><Icon name="shield" /></div>
+        <div><span>ADVISORY VIEW · NOT A BANKING PRODUCT</span><h2>Build confidence for uneven income.</h2><p>{riskCopy}</p></div>
+        <div className="shield-score"><small>Financial health</small><strong>{risk.score == null ? "—" : `${risk.score}/100`}</strong><span>{risk.band || "Awaiting records"}</span></div>
+      </section>
+      <section className="metrics-grid shield-metrics" aria-label="Safety-net measures">
+        <MetricCard label="This period's surplus" value={formatMoney(summary.surplus)} detail="Income less recorded expenses" icon="wallet" tone="green" />
+        <MetricCard label="Essential expenses" value={formatMoney(summary.essential_expenses)} detail="Your current-period baseline" icon="shield" tone="blue" />
+        <MetricCard label="Observed savings pace" value={savings.average_monthly_savings == null ? "—" : formatMoney(savings.average_monthly_savings)} detail="Average from recorded months" icon="forecast" tone="mint" />
+        <MetricCard label="Savings cover estimate" value={safetyMonths == null ? "—" : `${safetyMonths.toFixed(1)} mo.`} detail="Savings pace ÷ current essential spending" icon="calendar" tone="sand" />
+      </section>
+      <section className="p3-dashboard-grid shield-grid">
+        <Panel title="Lean-month plan" kicker="NEXT STEPS">
+          <ol className="shield-steps">
+            <li><span>1</span><div><strong>Protect essentials first</strong><p>Use the recorded essential-expense amount as your starting monthly target: {formatMoney(summary.essential_expenses)}.</p></div></li>
+            <li><span>2</span><div><strong>Keep a cash-flow buffer visible</strong><p>{savings.average_monthly_savings == null ? "Record a few complete months to estimate a savings pace." : `Your observed average monthly savings is ${formatMoney(savings.average_monthly_savings)}.`}</p></div></li>
+            <li><span>3</span><div><strong>Turn a plan into a goal</strong><p>Create and track a safety goal in Personalization. FlexiFund does not move money or make payments.</p></div></li>
+          </ol>
+        </Panel>
+        <Panel title="Forecast signal" kicker="FROM FINANCIAL INTELLIGENCE">
+          {forecast.available ? <div className="shield-forecast"><strong>{formatMoney(forecast.predicted_savings)}</strong><span>Estimated savings for {forecast.forecast_month}</span><p>{forecast.explanation}</p><button type="button" className="p3-link-button" onClick={() => onNavigate("forecast")}>Review forecast <Icon name="arrow" /></button></div> : <div className="p3-intelligence-empty">{forecast.explanation || "Not enough historical financial data is available to generate a reliable forecast."}</div>}
+        </Panel>
+      </section>
+    </>
+  );
+}
+
+function ForecastPage({ intelligence, monthly, onNavigate }) {
+  const forecast = intelligence?.forecast || {};
+  const prediction = intelligence?.expense_prediction || forecast.expense_prediction || {};
+  const savings = intelligence?.savings || {};
+  const history = intelligence?.features?.monthly_history || monthly || [];
+  const predictionAvailable = Boolean(forecast.available && prediction.available);
+  const evaluation = prediction.evaluation || {};
+  return (
+    <>
+      <PageTitle eyebrow="FINANCIAL FORECAST" title="Plan ahead with clarity" subtitle="Recorded results and forward-looking estimates are always shown separately." action={<button className="p3-secondary-button" type="button" onClick={() => onNavigate("assistant")}>Ask FlexiFund AI <Icon name="assistant" /></button>} />
+      <section className="forecast-status" role="status"><Icon name="forecast" /><span><strong>{forecast.available ? "Forecast available" : "Forecast needs more history"}</strong>{forecast.available ? ` · ${forecast.historical_months} completed month${forecast.historical_months === 1 ? "" : "s"} analysed` : ` · ${forecast.explanation || "Not enough historical financial data is available to generate a reliable forecast."}`}</span></section>
+      <section className="forecast-main-grid">
+        <Panel title="Projected cash flow" kicker="ACTUAL VS PREDICTED WITH CONFIDENCE BANDS" className="forecast-chart-panel"><ForecastChart rows={history} forecast={forecast} /></Panel>
+        <Panel title="Next-month outlook" kicker={forecast.available ? `${forecast.forecast_month?.toUpperCase()} · PREDICTED` : "PREDICTION UNAVAILABLE"} className="forecast-outlook-panel">
+          {forecast.available ? <div className="forecast-outlook-values">
+            <div><span>Predicted income</span><strong>{formatMoney(forecast.predicted_income)}</strong></div>
+            <div><span>Predicted expenses</span><strong>{formatMoney(forecast.predicted_expenses)}</strong><small>{predictionAvailable ? "Validated expense prediction" : "Forecast estimate"}</small></div>
+            <div><span>Predicted savings</span><strong className={savings.potential_negative_cash_flow ? "negative-value" : ""}>{formatMoney(forecast.predicted_savings)}</strong></div>
+          </div> : <div className="p3-intelligence-empty">Not enough historical financial data is available to generate a reliable forecast.</div>}
+          {forecast.available && <p className="p3-intelligence-note">{forecast.explanation}</p>}
+        </Panel>
+      </section>
+      {forecast.available && (
+        <section className="forecast-waterfall-section">
+          <Panel title="Cash flow breakdown" kicker={`${forecast.forecast_month?.toUpperCase()} · WATERFALL ANALYSIS`} className="forecast-waterfall-panel">
+            <CashFlowWaterfallChart forecast={forecast} />
+            <p className="p3-intelligence-note">Waterfall visualization shows how income flows to expenses and results in projected savings. Bar heights represent monetary amounts.</p>
+          </Panel>
+        </section>
+      )}
+      <section className="forecast-model-grid">
+        <Panel title="Expense prediction method" kicker="MODEL TRANSPARENCY">
+          {predictionAvailable ? <dl className="forecast-model-details"><div><dt>Selected model</dt><dd>{prediction.selected_model?.replaceAll("_", " ") || "Not reported"}</dd></div><div><dt>Validation</dt><dd>Chronological holdout</dd></div><div><dt>MAE</dt><dd>{evaluation.mae == null ? "—" : formatMoney(evaluation.mae)}</dd></div><div><dt>RMSE</dt><dd>{evaluation.rmse == null ? "—" : formatMoney(evaluation.rmse)}</dd></div><div><dt>R²</dt><dd>{evaluation.r2 == null ? "Not meaningful for holdout" : Number(evaluation.r2).toFixed(3)}</dd></div></dl> : <p className="p3-intelligence-empty">{prediction.insufficient_data?.message || prediction.explanation || "The prediction model needs sufficient completed monthly expense history before it can provide a reliable result."}</p>}
+        </Panel>
+        <Panel title="How to use this" kicker="PLANNING, NOT A GUARANTEE"><ul className="forecast-use-list"><li><Icon name="check" />Filled bars are recorded financial activity.</li><li><Icon name="check" />Outlined bars and areas show estimates with uncertainty ranges.</li><li><Icon name="check" />Predictions never create or modify your transactions.</li><li><Icon name="check" />Confidence bands indicate forecast uncertainty.</li></ul></Panel>
+      </section>
+    </>
+  );
+}
+
+function BillsPayoutsPage({ onNotify }) {
+  const [items, setItems] = useState(() => {
+    try { return JSON.parse(readPreference("flexifund-bill-plan", "[]")); } catch { return []; }
+  });
+  const [values, setValues] = useState({ name: "", amount: "", due: "" });
+  const total = items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  function save(next) { setItems(next); writePreference("flexifund-bill-plan", JSON.stringify(next)); }
+  function addPlan(event) {
+    event.preventDefault();
+    if (!values.name.trim() || !Number(values.amount) || !values.due) return onNotify?.({ type: "error", message: "Enter a bill, amount, and due date." });
+    save([...items, { id: `${Date.now()}`, ...values, amount: Number(values.amount) }]);
+    setValues({ name: "", amount: "", due: "" });
+    onNotify?.({ type: "success", message: "Bill added to this browser's planning list." });
+  }
+  return (
+    <>
+      <PageTitle eyebrow="BILLS & PAYOUTS" title="Keep upcoming commitments visible" subtitle="A private planning list for your device. It never connects to billers, banks, or payment services." />
+      <section className="planning-disclaimer"><Icon name="bills" /><span><strong>Planning-only view.</strong> Items are saved in this browser and do not send, schedule, or make payments.</span></section>
+      <section className="p3-dashboard-grid bills-grid">
+        <Panel title="Add a planned bill" kicker="THIS DEVICE"><form className="p3-form bill-form" onSubmit={addPlan}><label>Bill or payout<input value={values.name} onChange={(event) => setValues((current) => ({ ...current, name: event.target.value }))} placeholder="e.g. Phone recharge" maxLength="80" /></label><label>Amount<div className="p3-input-prefix"><span>₹</span><input type="number" min="0.01" step="0.01" value={values.amount} onChange={(event) => setValues((current) => ({ ...current, amount: event.target.value }))} /></div></label><label className="p3-form-wide">Due date<input type="date" value={values.due} onChange={(event) => setValues((current) => ({ ...current, due: event.target.value }))} /></label><div className="p3-form-actions"><button className="p3-primary-button" type="submit">Add to plan <Icon name="arrow" /></button></div></form></Panel>
+        <Panel title="Planned commitments" kicker={`${items.length} ITEM${items.length === 1 ? "" : "S"} · ${formatMoney(total)}`}><div className="bills-list">{items.length ? items.slice().sort((a, b) => String(a.due).localeCompare(String(b.due))).map((item) => <article key={item.id}><div><strong>{item.name}</strong><span>Due {formatDate(item.due)}</span></div><b>{formatMoney(item.amount)}</b><button type="button" onClick={() => save(items.filter((candidate) => candidate.id !== item.id))} aria-label={`Remove ${item.name}`}>×</button></article>) : <div className="p3-empty-list"><strong>No planned bills yet</strong><span>Add an upcoming commitment to keep it visible here.</span></div>}</div></Panel>
+      </section>
+    </>
+  );
+}
+
+function ImportedTransactionReviewRow({ transaction, onSaved, onNotify }) {
+  const [transactionType, setTransactionType] = useState(transaction.transaction_type);
+  const [category, setCategory] = useState(transaction.category || "Other");
+  const [isWorkExpense, setIsWorkExpense] = useState(Boolean(transaction.is_work_expense));
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setTransactionType(transaction.transaction_type);
+    setCategory(transaction.category || "Other");
+    setIsWorkExpense(Boolean(transaction.is_work_expense));
+  }, [transaction]);
+
+  async function save() {
+    setSaving(true);
+    try {
+      const changes = { transaction_type: transactionType, is_work_expense: isWorkExpense };
+      if (transactionType === "Expense") changes.category = category;
+      const response = await updateImportedTransaction(transaction.id, changes);
+      onSaved(response?.data);
+      onNotify?.({ type: "success", message: "Imported transaction classification saved." });
+    } catch (requestError) {
+      onNotify?.({ type: "error", message: requestError.message || "Unable to save the transaction correction." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <tr>
+    <td>{formatDate(transaction.transaction_date)}</td>
+    <td><strong>{transaction.description || "Unlabelled bank transaction"}</strong><small>{transaction.reference_id ? `Ref ${transaction.reference_id}` : "No bank reference supplied"}</small></td>
+    <td>{formatMoney(transaction.amount)}</td>
+    <td><select value={transactionType} onChange={(event) => setTransactionType(event.target.value)}><option>Income</option><option>Expense</option><option>Transfer</option><option>Unknown</option></select></td>
+    <td>{transactionType === "Expense" ? <select value={category} onChange={(event) => setCategory(event.target.value)}>{EXPENSE_CATEGORIES.map((item) => <option key={item}>{item}</option>)}</select> : <span className="import-muted">Not applicable</span>}</td>
+    <td>{transactionType === "Expense" ? <label className="import-work-toggle"><input type="checkbox" checked={isWorkExpense} onChange={(event) => setIsWorkExpense(event.target.checked)} />Work</label> : <span className="import-muted">—</span>}</td>
+    <td><button type="button" className="import-save-button" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</button></td>
+  </tr>;
+}
+
+function BankImportPage({ onImported, onNavigate, onNotify }) {
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [batch, setBatch] = useState(null);
+  const [transactions, setTransactions] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [loadingRows, setLoadingRows] = useState(false);
+  const [error, setError] = useState("");
+
+  function chooseFile(event) {
+    const nextFile = event.target.files?.[0] || null;
+    setFile(nextFile);
+    setPreview(null);
+    setBatch(null);
+    setTransactions([]);
+    setError("");
+  }
+
+  async function previewFile() {
+    if (!file) {
+      setError("Choose a CSV statement before previewing it.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const response = await previewBankStatement(file);
+      setPreview(response?.data || null);
+    } catch (requestError) {
+      setError(requestError.message || "The bank statement could not be previewed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmImport() {
+    if (!file || !preview) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await importBankStatement(file, preview.mapping);
+      const nextBatch = response?.data;
+      setBatch(nextBatch);
+      await onImported?.();
+      if (nextBatch?.id) await loadTransactions(nextBatch.id);
+      onNotify?.({ type: "success", message: "Bank statement processed. Your financial views have been refreshed." });
+    } catch (requestError) {
+      setError(requestError.message || "The bank statement could not be imported.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loadTransactions(batchId = batch?.id) {
+    if (!batchId) return;
+    setLoadingRows(true);
+    try {
+      const response = await fetchImportedTransactions(batchId);
+      setTransactions(response?.data || []);
+    } catch (requestError) {
+      setError(requestError.message || "Imported transactions could not be loaded.");
+    } finally {
+      setLoadingRows(false);
+    }
+  }
+
+  function updateSavedTransaction(updated) {
+    if (!updated) return;
+    const previous = transactions.find((row) => row.id === updated.id);
+    setTransactions((rows) => rows.map((row) => row.id === updated.id ? updated : row));
+    if (previous?.review_status === "needs_review" && updated.review_status !== "needs_review") {
+      setBatch((current) => current ? { ...current, review_rows: Math.max(0, Number(current.review_rows || 0) - 1) } : current);
+    }
+  }
+
+  return <section className="import-page">
+    <PageTitle eyebrow="BANK STATEMENT IMPORT" title="Import your daily bank statement" subtitle="Upload a CSV, preview the automatic classification, then confirm. FlexiFund does not connect directly to your bank or retain the raw file." />
+    {!batch && <>
+      <section className="import-upload-card">
+        <div className="import-upload-icon"><Icon name="upload" /></div>
+        <div><h2>Import bank statement</h2><p>Choose a daily CSV exported from your bank. Supported fields include date, narration, debit, credit, amount, balance, reference number, and payment mode.</p></div>
+        <label className="import-file-control"><input type="file" accept=".csv,text/csv" onChange={chooseFile} /> <Icon name="file" />{file ? file.name : "Choose CSV file"}</label>
+        <button type="button" className="p3-primary-button" onClick={previewFile} disabled={!file || busy}>{busy ? "Checking…" : "Preview transactions"}<Icon name="arrow" /></button>
+        <small>Files are parsed in memory. The original statement CSV is never stored by FlexiFund.</small>
+      </section>
+      {error && <div className="p3-inline-error import-error" role="alert">{error}</div>}
+      {preview && <section className="import-preview-grid">
+        <Panel title="Column mapping" kicker="DETECTED FROM YOUR CSV"><p className="import-explainer">Confirm how FlexiFund will read this file before importing. You can correct transactions after import.</p><dl className="import-mapping-list">{Object.entries(preview.mapping || {}).map(([internal, column]) => <div key={internal}><dt>{column}</dt><dd>→ {internal.replaceAll("_", " ")}</dd></div>)}</dl><p className="import-explainer">{preview.valid_rows} valid row{preview.valid_rows === 1 ? "" : "s"}; {preview.rejected_rows} rejected; {preview.requires_review} need review.</p><button type="button" className="p3-primary-button" onClick={confirmImport} disabled={busy}>{busy ? "Importing…" : "Confirm import"}<Icon name="arrow" /></button></Panel>
+        <Panel title="Transaction preview" kicker="NO DATA SAVED YET"><div className="import-preview-table-wrap"><table className="import-preview-table"><thead><tr><th>Date</th><th>Description</th><th>Amount</th><th>Type</th><th>Category</th><th>Review</th></tr></thead><tbody>{preview.transactions.map((row) => <tr key={row.row}><td>{formatDate(row.transaction_date)}</td><td>{row.description || "Unlabelled transaction"}</td><td>{formatMoney(row.amount)}</td><td>{row.transaction_type}</td><td>{row.category || "—"}{row.subcategory ? ` · ${row.subcategory}` : ""}</td><td>{row.needs_review ? "Needs review" : "Classified"}</td></tr>)}</tbody></table></div>{preview.preview_truncated && <p className="import-explainer">Only the first 50 transactions are shown in this preview.</p>}{preview.errors?.length ? <p className="import-row-errors">{preview.errors.length} invalid row(s) will be rejected. Check the file and retry if these need to be included.</p> : null}</Panel>
+      </section>}
+    </>}
+    {batch && <>
+      <section className="import-complete-card"><div className="import-complete-mark"><Icon name="check" /></div><div><span>IMPORT COMPLETED</span><h2>{batch.total_rows} transaction row{batch.total_rows === 1 ? "" : "s"} processed</h2><p>{batch.filename} · {batch.batch_code}. The raw CSV has not been retained.</p></div></section>
+      <section className="import-result-grid"><article><strong>{batch.imported_rows}</strong><span>New transactions</span></article><article><strong>{batch.duplicate_rows}</strong><span>Duplicates skipped</span></article><article><strong>{batch.rejected_rows}</strong><span>Rejected rows</span></article><article><strong>{batch.review_rows}</strong><span>Require review</span></article></section>
+      <div className="import-result-actions"><button type="button" className="p3-secondary-button" onClick={() => loadTransactions()} disabled={loadingRows}>{loadingRows ? "Loading…" : "View imported transactions"}</button><button type="button" className="p3-primary-button" onClick={() => onNavigate("dashboard")}>Go to dashboard <Icon name="arrow" /></button></div>
+      {(loadingRows || transactions.length > 0) && <Panel title="Review imported transactions" kicker="AUTOMATIC IMPORT + OPTIONAL CORRECTION"><p className="import-explainer">Rows marked Needs review are uncertain by design. Saving a correction updates the matching Income or Expense record and remembers this preference for future CSV imports.</p>{loadingRows ? <div className="p3-inline-loading">Loading imported transactions…</div> : <div className="import-review-table-wrap"><table className="import-review-table"><thead><tr><th>Date</th><th>Description</th><th>Amount</th><th>Type</th><th>Category</th><th>Work expense</th><th /></tr></thead><tbody>{transactions.map((transaction) => <ImportedTransactionReviewRow key={transaction.id} transaction={transaction} onSaved={updateSavedTransaction} onNotify={onNotify} />)}</tbody></table></div>}</Panel>}
+    </>}
+  </section>;
+}
+
+function AlertsPage({ intelligence, notifications, onNotificationChange }) {
+  const risk = intelligence?.risk || {};
+  const anomalies = intelligence?.anomalies || [];
+  const spending = intelligence?.spending || {};
+  const recommendations = intelligence?.recommendations || [];
+  const alerts = [
+    ...(risk.negative_factors || []).map((message) => ({ type: "Attention", title: "Financial health signal", message })),
+    ...anomalies.map((item) => ({ type: "Review", title: item.title || item.category || "Unusual spending", message: item.message || item.explanation || "A spending pattern was flagged for review." })),
+    ...(spending.overspending || []).map((item) => ({ type: "Spending", title: item.category || "Spending alert", message: item.message || item.explanation || "This category is above its observed baseline." })),
+    ...recommendations.slice(0, 3).map((item) => ({ type: item.priority || "Tip", title: item.title, message: item.message || item.basis || "A recommendation based on your recorded transactions." })),
+  ];
+  return (
+    <>
+      <PageTitle eyebrow="ALERTS & NOTIFICATIONS" title="Stay one step ahead" subtitle="Signals are derived from your recorded financial activity. They are not fraud or banking notifications." />
+      <section className="alert-preferences"><span>Show in-app alerts</span><div>{[["financial", "Financial"], ["spending", "Spending"], ["monthly", "Monthly summary"]].map(([key, label]) => <label key={key}><input type="checkbox" checked={notifications[key]} onChange={(event) => onNotificationChange(key, event.target.checked)} />{label}</label>)}</div></section>
+      <Panel title="Financial signals" kicker={alerts.length ? `${alerts.length} CURRENT SIGNAL${alerts.length === 1 ? "" : "S"}` : "NO CURRENT SIGNALS"}><div className="alerts-list">{alerts.length ? alerts.map((alert, index) => <article key={`${alert.title}-${index}`}><span className={`alerts-type ${String(alert.type).toLowerCase()}`}>{alert.type}</span><div><strong>{alert.title}</strong><p>{alert.message}</p></div></article>) : <div className="p3-empty-list"><strong>No alerts from the available data</strong><span>Continue recording income and expenses to receive evidence-based signals.</span></div>}</div></Panel>
+    </>
+  );
+}
+
+function ProfilePage({ summary, onNavigate }) {
+  const [alias, setAlias] = useState(() => readPreference("flexifund-profile-alias", ""));
+  const shownName = alias.trim() || summary.user_name || "FlexiFund member";
+  return (
+    <>
+      <PageTitle eyebrow="PROFILE & SETTINGS" title="Your FlexiFund profile" subtitle="Personal details below are stored on this device unless they are part of your secure account." />
+      <section className="profile-hero-card"><span className="profile-hero-avatar">{shownName[0]?.toUpperCase() || "F"}</span><div><h2>{shownName}</h2><p>Private FlexiFund account · Your financial data remains isolated to this signed-in account.</p></div><button className="p3-secondary-button" type="button" onClick={() => onNavigate("settings")}>Account settings <Icon name="arrow" /></button></section>
+      <section className="p3-dashboard-grid profile-page-grid">
+        <Panel title="Display name" kicker="SAVED ON THIS DEVICE"><label className="profile-alias-field">Name shown in this browser<input value={alias} onChange={(event) => { setAlias(event.target.value); writePreference("flexifund-profile-alias", event.target.value); }} maxLength="80" placeholder={summary.user_name || "Your name"} /><small>This changes only the name displayed on this device; it does not update the backend account.</small></label></Panel>
+        <Panel title="Financial tools" kicker="YOUR WORKSPACE"><div className="profile-tool-links"><button type="button" onClick={() => onNavigate("personalization")}><Icon name="analytics" />Goals, behavior & budget <Icon name="arrow" /></button><button type="button" onClick={() => onNavigate("assistant")}><Icon name="assistant" />Ask FlexiFund AI <Icon name="arrow" /></button><button type="button" onClick={() => onNavigate("transactions")}><Icon name="transactions" />Review all transactions <Icon name="arrow" /></button></div></Panel>
+      </section>
+    </>
+  );
+}
+
 function readPreference(key, fallback) {
   try {
     return window.localStorage.getItem(key) ?? fallback;
@@ -1240,8 +1579,36 @@ function writePreference(key, value) {
   }
 }
 
-function AuthScreen({ initialError, onAuthenticated }) {
-  const [mode, setMode] = useState("login");
+function WorkforceIllustration() {
+  return <svg className="workforce-illustration" viewBox="0 0 420 320" role="img" aria-label="Illustration of independent workers planning their finances"><defs><linearGradient id="ff-sky" x1="0" x2="1"><stop stopColor="#d9f6ed" /><stop offset="1" stopColor="#e8f0ff" /></linearGradient></defs><rect width="420" height="320" rx="28" fill="url(#ff-sky)" /><path d="M0 257c51-47 82-44 133-14 54 31 96 5 142-14 48-21 92-13 145 24v67H0Z" fill="#b6e8d6" opacity=".8" /><path d="M243 73h95v128h-95z" rx="7" fill="#b7d8e9" /><path d="M258 54h17v147h-17zm33 31h16v116h-16zm29-47h13v163h-13z" fill="#f3fbff" /><circle cx="102" cy="112" r="29" fill="#8a5b3e" /><path d="M78 109c2-42 49-48 54-4-11-10-35-13-54 4Z" fill="#162b46" /><path d="M70 162c12-29 56-32 72 0l18 85H52Z" fill="#08a875" /><path d="M85 157h42l-6 85H91Z" fill="#fbceab" /><rect x="165" y="166" width="97" height="57" rx="7" fill="#102c46" /><rect x="174" y="174" width="79" height="39" rx="3" fill="#edf8f4" /><path d="M185 202c10-20 21-2 31-17 8-12 17-2 25-10" fill="none" stroke="#08a875" strokeWidth="4" strokeLinecap="round" /><path d="M263 223h-104l13 11h78Z" fill="#55738d" /><circle cx="316" cy="245" r="26" fill="#8a5b3e" /><path d="M291 244c0-35 48-40 51-1-17-9-34-8-51 1Z" fill="#1c3655" /><path d="M282 283c10-31 58-31 69 0v37h-69Z" fill="#f1ae58" /><path d="M352 105c17-25 42-11 38 13-3 23-30 27-42 11" fill="#fff" opacity=".9" /><path d="M360 115l8 8 14-20" fill="none" stroke="#08a875" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+function LandingPage({ onStart, onLogin }) {
+  return (
+    <main className="landing-page">
+      <nav className="landing-nav"><button className="landing-brand" type="button" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}><BrandMark /><span>FlexiFund</span></button><div className="landing-links"><a href="#features">Features</a><a href="#how-it-works">How it works</a><a href="#about">About</a></div><div className="landing-actions"><button className="landing-login" type="button" onClick={onLogin}>Login</button><button className="landing-primary small" type="button" onClick={onStart}>Get started</button></div></nav>
+      <section className="landing-hero"><div className="landing-copy"><span className="landing-kicker">FINANCIAL WELLBEING FOR FLEXIBLE WORK</span><h1>Your income may change. <em>Your financial confidence shouldn’t.</em></h1><p>FlexiFund helps gig workers manage irregular income, track expenses, and build a secure financial future.</p><div className="landing-cta"><button className="landing-primary" type="button" onClick={onStart}>Get started free <Icon name="arrow" /></button><a className="landing-secondary" href="#how-it-works">Learn more</a></div><div className="landing-trust"><span><Icon name="shield" />Private by design</span><span><Icon name="forecast" />Clear, explainable insights</span></div></div><WorkforceIllustration /></section>
+      <section className="worker-strip" aria-label="Built for independent workers"><strong>For every gig worker</strong><div><span><Icon name="wallet" />Delivery partners</span><span><Icon name="income" />Drivers</span><span><Icon name="profile" />Freelancers</span><span><Icon name="bills" />Service workers</span><span><Icon name="userPlus" />Tutors</span><span><Icon name="analytics" />Creators</span></div></section>
+      <section className="landing-section" id="features"><span className="landing-kicker">WHAT FLEXIFUND DOES</span><h2>A calmer way to understand money that changes month to month.</h2><div className="landing-feature-grid"><article><Icon name="dashboard" /><h3>See the full picture</h3><p>Track income, expenses, cash flow and financial health in one private workspace.</p></article><article><Icon name="shield" /><h3>Prepare for lean months</h3><p>Use your recorded essentials and savings pace to build a practical buffer.</p></article><article><Icon name="forecast" /><h3>Plan with evidence</h3><p>View actual history separately from a next-month statistical estimate when enough data exists.</p></article></div></section>
+      <section className="landing-steps" id="how-it-works"><div><span className="landing-kicker">HOW IT WORKS</span><h2>Simple enough for every day.</h2><p>Start with your own numbers. FlexiFund makes the patterns easier to see.</p></div><ol><li><b>1</b><span>Add income and expenses</span></li><li><b>2</b><span>Understand patterns and health</span></li><li><b>3</b><span>Plan your next move</span></li></ol></section>
+      <footer className="landing-footer" id="about"><div className="landing-brand"><BrandMark /><span>FlexiFund</span></div><p>Private financial planning tools for flexible earners.</p><button className="landing-primary small" type="button" onClick={onStart}>Create free account</button></footer>
+    </main>
+  );
+}
+
+function OnboardingPage({ user, onComplete }) {
+  const [step, setStep] = useState(1);
+  const [workTypes, setWorkTypes] = useState([]);
+  const [phone, setPhone] = useState("");
+  const [goals, setGoals] = useState([]);
+  const options = ["Delivery Partner", "Driver", "Freelancer", "Service Worker", "Tutor", "Creator"];
+  function toggle(list, value, update) { update(list.includes(value) ? list.filter((item) => item !== value) : [...list, value]); }
+  function finish() { writePreference("flexifund-onboarding", JSON.stringify({ workTypes, phone, goals })); onComplete(); }
+  return <main className="onboarding-shell"><section className="onboarding-card"><div className="auth-brand"><BrandMark /><span>FlexiFund</span></div><div className="onboarding-progress" aria-label={`Step ${step} of 4`}>{[1, 2, 3, 4].map((number) => <span key={number} className={number <= step ? "done" : ""}>{number}<small>{["Profile", "Work", "Expenses", "Goals"][number - 1]}</small></span>)}</div>{step === 1 && <div className="onboarding-content"><span className="auth-kicker">WELCOME, {user?.name || "FRIEND"}</span><h1>Let’s make your money picture clearer.</h1><p>These optional preferences are saved only on this device. You can update them later.</p><label>Phone number <small>Optional</small><input value={phone} onChange={(event) => setPhone(event.target.value)} type="tel" placeholder="Your phone number" /></label></div>}{step === 2 && <div className="onboarding-content"><span className="auth-kicker">TELL US ABOUT YOUR WORK</span><h1>Select all that apply.</h1><div className="onboarding-choice-grid">{options.map((option) => <button type="button" className={workTypes.includes(option) ? "selected" : ""} key={option} onClick={() => toggle(workTypes, option, setWorkTypes)}><Icon name="briefcase" />{option}</button>)}</div></div>}{step === 3 && <div className="onboarding-content"><span className="auth-kicker">YOUR SPENDING VIEW</span><h1>Record income and expenses when you’re ready.</h1><p>We never invent values. The dashboard becomes more useful as you add your own financial records.</p><div className="onboarding-data-note"><Icon name="wallet" /><span>You can add income and expenses from the dashboard after setup.</span></div></div>}{step === 4 && <div className="onboarding-content"><span className="auth-kicker">SET A DIRECTION</span><h1>What matters most right now?</h1><div className="onboarding-choice-grid goals">{["Build an emergency fund", "Manage monthly bills", "Save for a goal", "Understand spending"].map((goal) => <button type="button" className={goals.includes(goal) ? "selected" : ""} key={goal} onClick={() => toggle(goals, goal, setGoals)}><Icon name="check" />{goal}</button>)}</div></div>}<div className="onboarding-actions"><button type="button" className="landing-login" onClick={() => step === 1 ? onComplete() : setStep((current) => current - 1)}>{step === 1 ? "Skip for now" : "Back"}</button><button type="button" className="landing-primary" onClick={() => step === 4 ? finish() : setStep((current) => current + 1)}>{step === 4 ? "Finish setup" : "Next"} <Icon name="arrow" /></button></div></section></main>;
+}
+
+function AuthScreen({ initialError, onAuthenticated, initialMode = "login", onBack, onRegistered }) {
+  const [mode, setMode] = useState(initialMode);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -1256,7 +1623,8 @@ function AuthScreen({ initialError, onAuthenticated }) {
       const user = mode === "register"
         ? await registerAccount({ name, email, password })
         : await loginAccount({ email, password });
-      onAuthenticated(user);
+      if (mode === "register") onRegistered?.(user);
+      else onAuthenticated(user);
     } catch (requestError) {
       setError(requestError.message || "Unable to authenticate. Please try again.");
     } finally {
@@ -1285,9 +1653,13 @@ function AuthScreen({ initialError, onAuthenticated }) {
     setError("");
   }
 
+  useEffect(() => { setMode(initialMode); setError(""); }, [initialMode]);
+
   return (
     <main className="auth-shell">
+      <section className="auth-side-panel"><div className="auth-side-content"><div className="auth-brand"><BrandMark /><span>FlexiFund</span></div><div><span className="auth-side-kicker">A PRIVATE FINANCIAL WORKSPACE</span><h1>Plan smart.<br />Live secure.</h1><p>Make room for your goals, even when your income changes from week to week.</p></div><div className="auth-side-shield"><Icon name="shield" /><span>Your financial data stays private to your account.</span></div></div></section>
       <section className="auth-card" aria-labelledby="auth-title">
+        {onBack && <button className="auth-back" type="button" onClick={onBack}>← Back to home</button>}
         <div className="auth-brand"><BrandMark /><span>flexifund<span className="brand-period">.</span></span></div>
         <div className="auth-kicker">PRIVATE FINANCIAL WORKSPACE</div>
         <h1 id="auth-title">{mode === "login" ? "Welcome back" : "Create your account"}</h1>
@@ -1298,10 +1670,10 @@ function AuthScreen({ initialError, onAuthenticated }) {
         </div>
         {(initialError || error) && <div className="auth-error" role="alert">{error || initialError}</div>}
         <form className="auth-form" onSubmit={handleSubmit}>
-          {mode === "register" && <label>Name<input autoComplete="name" maxLength="120" value={name} onChange={(event) => setName(event.target.value)} required /></label>}
+          {mode === "register" && <label>Full name<input autoComplete="name" maxLength="120" value={name} onChange={(event) => setName(event.target.value)} required placeholder="Your name" /></label>}
           <label>Email<input type="email" autoComplete="email" maxLength="320" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
           <label>Password<input type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={mode === "register" ? 12 : 1} maxLength="128" value={password} onChange={(event) => setPassword(event.target.value)} required /><small>{mode === "register" ? "Use at least 12 characters." : ""}</small></label>
-          <button className="auth-submit" type="submit" disabled={busy}>{busy ? "Please wait…" : mode === "login" ? "Sign in securely" : "Create account"}</button>
+          <button className="auth-submit" type="submit" disabled={busy}>{busy ? "Please wait…" : mode === "login" ? "Login" : "Create account"}</button>
         </form>
         {mode === "login" && <section className="auth-demo" aria-label="Presentation demo">
           <strong>Present FlexiFund with demo data</strong>
@@ -1318,6 +1690,8 @@ function App() {
   const [authUser, setAuthUser] = useState(null);
   const [authState, setAuthState] = useState("checking");
   const [authError, setAuthError] = useState("");
+  const [publicView, setPublicView] = useState("landing");
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1339,10 +1713,16 @@ function App() {
       // Remove the private view even if the session has already expired.
     }
     setAuthUser(null);
+    setShowOnboarding(false);
+    setPublicView("landing");
   }
 
   if (authState === "checking") return <LoadingState />;
-  if (!authUser) return <AuthScreen initialError={authError} onAuthenticated={(user) => { setAuthError(""); setAuthUser(user); }} />;
+  if (!authUser) {
+    if (publicView === "landing") return <LandingPage onStart={() => setPublicView("register")} onLogin={() => setPublicView("login")} />;
+    return <AuthScreen initialError={authError} initialMode={publicView} onBack={() => setPublicView("landing")} onAuthenticated={(user) => { setAuthError(""); setAuthUser(user); }} onRegistered={(user) => { setAuthError(""); setAuthUser(user); setShowOnboarding(true); }} />;
+  }
+  if (showOnboarding) return <OnboardingPage user={authUser} onComplete={() => setShowOnboarding(false)} />;
   return <DashboardApp onLogout={signOut} />;
 }
 
@@ -1356,7 +1736,15 @@ function periodQuery(selection) {
 }
 
 function DashboardApp({ onLogout }) {
-  const [activePage, setActivePage] = useState("dashboard");
+  // Initialize scroll animations and progress bar
+  useScrollAnimations();
+  useScrollProgress();
+  
+  // Initialize from URL hash if present, otherwise default to dashboard
+  const [activePage, setActivePage] = useState(() => {
+    const hash = window.location.hash.slice(1);
+    return hash || "dashboard";
+  });
   const [assistantSeedQuestion, setAssistantSeedQuestion] = useState("");
   const [summary, setSummary] = useState(null);
   const [monthly, setMonthly] = useState([]);
@@ -1432,6 +1820,34 @@ function DashboardApp({ onLogout }) {
   useEffect(() => {
     writePreference("flexifund-period", periodSelection);
   }, [periodSelection]);
+
+  // Handle browser back/forward buttons
+  useEffect(() => {
+    const handlePopState = (event) => {
+      const hash = window.location.hash.slice(1);
+      const page = hash || "dashboard";
+      setActivePage(page);
+      if (page !== "assistant") setAssistantSeedQuestion("");
+      setNotificationsOpen(false);
+    };
+
+    // Also handle hash changes (for direct URL updates)
+    const handleHashChange = () => {
+      const hash = window.location.hash.slice(1);
+      const page = hash || "dashboard";
+      setActivePage(page);
+      if (page !== "assistant") setAssistantSeedQuestion("");
+      setNotificationsOpen(false);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    window.addEventListener("hashchange", handleHashChange);
+
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("hashchange", handleHashChange);
+    };
+  }, []);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -1528,12 +1944,21 @@ function DashboardApp({ onLogout }) {
   }, [activePage, summary, transactionFilters.kind, transactionFilters.category, transactionFilters.month, transactionFilters.year, transactionRevision]);
 
   const transactions = useTransactionRows(incomeRecords, expenseRecords);
-  const pageTitle = NAV_ITEMS.find((item) => item.id === activePage)?.label || "Dashboard";
+  const pageTitle = NAV_ITEMS.find((item) => item.id === activePage)?.label || ({
+    transactions: "Transactions",
+    analytics: "Analytics",
+    health: "Financial Health",
+    personalization: "Personalization",
+    assistant: "AI Assistant",
+    import: "Import Bank Statement",
+  }[activePage] || "Dashboard");
 
   function navigate(page) {
     if (page !== "assistant") setAssistantSeedQuestion("");
     setActivePage(page);
     setNotificationsOpen(false);
+    // Update browser history when navigating
+    window.history.pushState({ page }, "", `#${page}`);
   }
 
   function askAssistant(question = "") {
@@ -1579,6 +2004,18 @@ function DashboardApp({ onLogout }) {
         return <IncomePage summary={summary} records={incomeRecords} onCreated={handleRecordCreated} onNotify={setToast} />;
       case "expenses":
         return <ExpensesPage summary={summary} records={expenseRecords} onCreated={handleRecordCreated} onNotify={setToast} />;
+      case "shield":
+        return <LeanMonthShieldPage summary={summary} intelligence={intelligence} onNavigate={navigate} />;
+      case "forecast":
+        return <ForecastPage intelligence={intelligence} monthly={monthly} onNavigate={navigate} />;
+      case "bills":
+        return <BillsPayoutsPage onNotify={setToast} />;
+      case "import":
+        return <BankImportPage onImported={handleRecordCreated} onNavigate={navigate} onNotify={setToast} />;
+      case "alerts":
+        return <AlertsPage intelligence={intelligence} notifications={notifications} onNotificationChange={updateNotification} />;
+      case "profile":
+        return <ProfilePage summary={summary} onNavigate={navigate} />;
       case "analytics":
         return <AnalyticsPage summary={summary} monthly={monthly} categories={categories} periodSelection={periodSelection} onPeriodChange={setPeriodSelection} />;
       case "health":
@@ -1596,7 +2033,7 @@ function DashboardApp({ onLogout }) {
 
   return (
     <div className={`app-shell phase3-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
-      <Sidebar active={activePage} onNavigate={navigate} userName={summary?.user_name} collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed((current) => !current)} />
+      <Sidebar active={activePage} onNavigate={navigate} onLogout={onLogout} userName={summary?.user_name} collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed((current) => !current)} />
       <main className="main-content phase3-main">
         <Topbar
           pageTitle={pageTitle}
